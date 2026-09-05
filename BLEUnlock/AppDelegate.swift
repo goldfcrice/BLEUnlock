@@ -1182,7 +1182,7 @@ struct DeviceMenuItemView {
     func userNotificationCenter(_ center: NSUserNotificationCenter,
                                 didActivate notification: NSUserNotification) {
         if notification != userNotification {
-            NSWorkspace.shared.open(URL(string: "https://github.com/Skyearn/BLEUnlock/releases")!)
+            NSWorkspace.shared.open(URL(string: "https://github.com/huang-zs/BLEUnlock/releases")!)
             NSUserNotificationCenter.default.removeDeliveredNotification(notification)
         }
     }
@@ -1213,7 +1213,7 @@ struct DeviceMenuItemView {
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let kind = response.notification.request.content.userInfo[notificationKindKey] as? String
         if kind == AppNotificationKind.update.rawValue {
-            NSWorkspace.shared.open(URL(string: "https://github.com/Skyearn/BLEUnlock/releases")!)
+            NSWorkspace.shared.open(URL(string: "https://github.com/huang-zs/BLEUnlock/releases")!)
             removeDeliveredNotification(identifier: updateNotificationID)
         }
         completionHandler()

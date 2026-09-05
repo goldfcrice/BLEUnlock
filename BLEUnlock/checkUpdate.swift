@@ -4,7 +4,7 @@ private let KEY = "lastUpdateCheck"
 private let INTERVAL = 24.0 * 60 * 60
 private var notified = false
 private var lastCheckAt = UserDefaults.standard.double(forKey: KEY)
-private let releasesURL = URL(string: "https://api.github.com/repos/Skyearn/BLEUnlock/releases/latest")!
+private let releasesURL = URL(string: "https://api.github.com/repos/huang-zs/BLEUnlock/releases/latest")!
 private let autoCheckUpdatesKey = "autoCheckUpdates"
 private let pendingUpdateVersionKey = "pendingUpdateVersion"
 private let pendingUpdateDownloadURLKey = "pendingUpdateDownloadURL"
@@ -46,7 +46,7 @@ func checkUpdate(force: Bool = false, completion: ((UpdateCheckResult) -> Void)?
 func automaticUpdateChecksEnabled() -> Bool {
     let prefs = UserDefaults.standard
     if prefs.object(forKey: autoCheckUpdatesKey) == nil {
-        return true
+        return false
     }
     return prefs.bool(forKey: autoCheckUpdatesKey)
 }
