@@ -146,9 +146,8 @@ class RemoteNotifier {
         if let photo, photo.base64EncodedString().count < 2_000_000 {
             fields["image"] = photo.base64EncodedString()
         }
-        let parts = fields.compactMap { k, v -> String? in
-            guard let v else { return nil }
-            return "\(k.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? k)=\(v.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? v)"
+        let parts = fields.map { k, v -> String in
+            "\(k)=\(v.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? v)"
         }
         request.httpBody = parts.joined(separator: "&").data(using: .utf8)
         run(request, channel: "bark")
