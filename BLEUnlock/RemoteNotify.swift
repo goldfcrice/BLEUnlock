@@ -173,10 +173,23 @@ class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
     private var output = AVCapturePhotoOutput()
     private var session = AVCaptureSession()
 
+    // Keep the in-flight capture alive; its only other references are weak.
+    private static var current: PhotoCapture?
+
+    static func requestAccess() {
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            if !granted { print("RemoteNotifier: camera access denied") }
+        }
+    }
+
     static func capture(completion: @escaping (Data?) -> Void) {
         queue.async {
             let capturer = PhotoCapture()
-            capturer.shoot(completion: completion)
+            Self.current = capturer
+            capturer.shoot { data in
+                Self.queue.async { Self.current = nil }
+                completion(data)
+            }
         }
     }
 

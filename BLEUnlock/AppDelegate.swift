@@ -374,6 +374,10 @@ struct DeviceMenuItemView {
         let value = !prefs.bool(forKey: RemoteNotifier.notifyWithPhotoKey)
         menuItem.state = value ? .on : .off
         prefs.set(value, forKey: RemoteNotifier.notifyWithPhotoKey)
+        // Ask for camera consent up front, instead of at the next event trigger.
+        if value, #available(macOS 10.15, *) {
+            PhotoCapture.requestAccess()
+        }
     }
 
     @objc func setupTelegram() {
