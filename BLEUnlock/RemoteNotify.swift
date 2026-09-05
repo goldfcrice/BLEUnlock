@@ -143,8 +143,8 @@ class RemoteNotifier {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         var fields = ["title": title, "body": body, "group": "BLEUnlock"]
         // Bark shows the image as an attachment; skip it when the payload gets too large.
-        if let photo, let b64 = photo.base64EncodedString().data(using: .utf8), b64.count < 1_500_000 {
-            fields["image"] = String(data: b64, encoding: .utf8)
+        if let photo, photo.base64EncodedString().count < 2_000_000 {
+            fields["image"] = photo.base64EncodedString()
         }
         let parts = fields.compactMap { k, v -> String? in
             guard let v else { return nil }
@@ -220,7 +220,7 @@ class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
 
     private func finish() {
         completion = nil
-        queue.async { [weak self] in
+        Self.queue.async { [weak self] in
             guard let self else { return }
             if self.session.isRunning { self.session.stopRunning() }
             self.session.inputs.forEach { self.session.removeInput($0) }
