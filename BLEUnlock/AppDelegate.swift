@@ -1661,6 +1661,10 @@ struct DeviceMenuItemView {
                     removeDeliveredNotification(identifier: identifier)
                     userNotificationID = nil
                 }
+                if let notification = userNotification {
+                    NSUserNotificationCenter.default.removeDeliveredNotification(notification)
+                    userNotification = nil
+                }
                 if displaySleep && !systemSleep && prefs.bool(forKey: "wakeOnProximity") {
                     let now = Date().timeIntervalSince1970
                     if now - lastDisplayWakeRequestAt >= minimumWakeRequestInterval {
