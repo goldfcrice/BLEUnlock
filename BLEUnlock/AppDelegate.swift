@@ -8,10 +8,10 @@ func t(_ key: String) -> String {
     return NSLocalizedString(key, comment: "")
 }
 
-private let currentAppBundleIdentifier = "com.github.huang-zs.BLEUnlock"
-private let legacyMainBundleIdentifiers = ["com.github.Skyearn.BLEUnlock", "jp.sone.BLEUnlock"]
-private let lockNotificationID = "com.github.huang-zs.BLEUnlock.lock"
-private let updateNotificationID = "com.github.huang-zs.BLEUnlock.update"
+private let currentAppBundleIdentifier = "com.github.goldfcrice.BLEUnlock"
+private let legacyMainBundleIdentifiers = ["com.github.huang-zs.BLEUnlock", "com.github.Skyearn.BLEUnlock", "jp.sone.BLEUnlock"]
+private let lockNotificationID = "com.github.goldfcrice.BLEUnlock.lock"
+private let updateNotificationID = "com.github.goldfcrice.BLEUnlock.update"
 private let notificationKindKey = "kind"
 private let launcherBundleIDSuffix = ".Launcher"
 private let unlockLogicMenuItemKind = "unlockLogic"
@@ -172,7 +172,7 @@ struct DeviceMenuItemView {
     var lockNowMenuItem: NSMenuItem?
     var deviceMenuItem: NSMenuItem?
     /// Serial queue for ServiceManagement XPC calls to avoid concurrent smd requests.
-    let smdQueue = DispatchQueue(label: "com.github.huang-zs.BLEUnlock.smd")
+    let smdQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.smd")
     let prefs = UserDefaults.standard
     var displaySleep = false
     var systemSleep = false
@@ -193,7 +193,7 @@ struct DeviceMenuItemView {
     var flagsEventMonitor: Any?
     var deviceMaxTitleWidth: [UUID: CGFloat] = [:]
     var automationPermissionPromptedApps: Set<ManagedMediaApp> = []
-    let mediaControlQueue = DispatchQueue(label: "com.github.huang-zs.BLEUnlock.media-control", qos: .userInitiated)
+    let mediaControlQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.media-control", qos: .userInitiated)
     var systemWakeTimer: Timer?
     var wakeUnlockTimer: Timer?
     var postUnlockRetryTimer: Timer?
@@ -1182,7 +1182,7 @@ struct DeviceMenuItemView {
     func userNotificationCenter(_ center: NSUserNotificationCenter,
                                 didActivate notification: NSUserNotification) {
         if notification != userNotification {
-            NSWorkspace.shared.open(URL(string: "https://github.com/huang-zs/BLEUnlock/releases")!)
+            NSWorkspace.shared.open(URL(string: "https://github.com/goldfcrice/BLEUnlock/releases")!)
             NSUserNotificationCenter.default.removeDeliveredNotification(notification)
         }
     }
@@ -1213,7 +1213,7 @@ struct DeviceMenuItemView {
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let kind = response.notification.request.content.userInfo[notificationKindKey] as? String
         if kind == AppNotificationKind.update.rawValue {
-            NSWorkspace.shared.open(URL(string: "https://github.com/huang-zs/BLEUnlock/releases")!)
+            NSWorkspace.shared.open(URL(string: "https://github.com/goldfcrice/BLEUnlock/releases")!)
             removeDeliveredNotification(identifier: updateNotificationID)
         }
         completionHandler()
