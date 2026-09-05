@@ -142,19 +142,26 @@ enum ManagedMediaApp: String, CaseIterable, Hashable {
 }
 
 private func requestNotificationAuthorization() {
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-        if let error = error {
-            print("Notification authorization failed: \(error.localizedDescription)")
-            return
+    if #available(macOS 10.14, *) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                print("Notification authorization failed: \(error.localizedDescription)")
+                return
+            }
+            print("Notification authorization granted: \(granted)")
         }
-        print("Notification authorization granted: \(granted)")
     }
 }
 
 private func removeDeliveredNotification(identifier: String) {
-    let center = UNUserNotificationCenter.current()
-    center.removePendingNotificationRequests(withIdentifiers: [identifier])
-    center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    if #available(macOS 10.14, *) {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    } else if let appDelegate = NSApp.delegate as? AppDelegate, let notification = appDelegate.userNotification {
+        NSUserNotificationCenter.default.removeDeliveredNotification(notification)
+        appDelegate.userNotification = nil
+    }
 }
 
 private func enqueueNotification(identifier: String,
@@ -165,38 +172,62 @@ private func enqueueNotification(identifier: String,
                                  after delay: TimeInterval? = nil,
                                  sound: Bool = true)
 {
-    let content = UNMutableNotificationContent()
-    content.title = title
-    if let subtitle = subtitle {
-        content.subtitle = subtitle
-    }
-    if let informativeText = informativeText {
-        content.body = informativeText
-    }
-    if sound {
-        content.sound = .default
-    }
-    content.userInfo = [notificationKindKey: kind.rawValue]
+    if #available(macOS 10.14, *) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        if let subtitle = subtitle {
+            content.subtitle = subtitle
+        }
+        if let informativeText = informativeText {
+            content.body = informativeText
+        }
+        if sound {
+            content.sound = .default
+        }
+        content.userInfo = [notificationKindKey: kind.rawValue]
 
-    let trigger = delay.map { UNTimeIntervalNotificationTrigger(timeInterval: $0, repeats: false) }
-    let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
-    UNUserNotificationCenter.current().add(request) { error in
-        if let error = error {
-            print("Failed to schedule notification \(identifier): \(error.localizedDescription)")
+        let trigger = delay.map { UNTimeIntervalNotificationTrigger(timeInterval: $0, repeats: false) }
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("Failed to schedule notification \(identifier): \(error.localizedDescription)")
+            }
+        }
+    } else {
+        let notification = NSUserNotification()
+        notification.title = title
+        notification.subtitle = subtitle
+        notification.informativeText = informativeText
+        if sound {
+            notification.soundName = NSUserNotificationDefaultSoundName
+        }
+        if let delay = delay {
+            notification.deliveryDate = Date().addingTimeInterval(delay)
+        }
+        NSUserNotificationCenter.default.deliver(notification)
+        if kind == .lock, let appDelegate = NSApp.delegate as? AppDelegate {
+            appDelegate.userNotification = notification
         }
     }
 }
 
 func notifyUpdateAvailable() {
-    enqueueNotification(identifier: updateNotificationID,
-                        kind: .update,
-                        title: "BLEUnlock",
-                        subtitle: t("notification_update_available"),
-                        sound: false)
+    if #available(macOS 10.14, *) {
+        enqueueNotification(identifier: updateNotificationID,
+                            kind: .update,
+                            title: "BLEUnlock",
+                            subtitle: t("notification_update_available"),
+                            sound: false)
+    } else {
+        let notification = NSUserNotification()
+        notification.title = "BLEUnlock"
+        notification.subtitle = t("notification_update_available")
+        NSUserNotificationCenter.default.deliver(notification)
+    }
 }
 
 @NSApplicationMain
-class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation, UNUserNotificationCenterDelegate, BLEDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation, NSUserNotificationCenterDelegate, UNUserNotificationCenterDelegate, BLEDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let ble = BLE()
     let mainMenu = NSMenu()
@@ -228,6 +259,7 @@ struct DeviceMenuItemView {
     var displaySleep = false
     var systemSleep = false
     var connected = false
+    var userNotification: NSUserNotification?
     var userNotificationID: String?
     var pausedMediaApps: Set<ManagedMediaApp> = []
     let pausedMediaAppsLock = NSLock()
@@ -343,7 +375,7 @@ struct DeviceMenuItemView {
         menuItem.state = value ? .on : .off
         prefs.set(value, forKey: RemoteNotifier.notifyWithPhotoKey)
         // Ask for camera consent up front, instead of at the next event trigger.
-        if value {
+        if value, #available(macOS 10.15, *) {
             PhotoCapture.requestAccess()
         }
     }
@@ -799,7 +831,10 @@ struct DeviceMenuItemView {
         if osVer.majorVersion >= 26 {
             return NSColor.disabledControlTextColor
         }
-        return NSColor.secondaryLabelColor
+        if #available(macOS 10.14, *) {
+            return NSColor.secondaryLabelColor
+        }
+        return NSColor.disabledControlTextColor
     }
 
 
@@ -1323,17 +1358,40 @@ struct DeviceMenuItemView {
         userNotificationID = lockNotificationID
     }
 
+    func userNotificationCenter(_ center: NSUserNotificationCenter,
+                                shouldPresent notification: NSUserNotification) -> Bool {
+        return true
+    }
+
+    func userNotificationCenter(_ center: NSUserNotificationCenter,
+                                didActivate notification: NSUserNotification) {
+        if notification != userNotification {
+            NSWorkspace.shared.open(URL(string: "https://github.com/goldfcrice/BLEUnlock/releases")!)
+            NSUserNotificationCenter.default.removeDeliveredNotification(notification)
+        }
+    }
+
+    @available(macOS 10.14, *)
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let kind = notification.request.content.userInfo[notificationKindKey] as? String
-        if kind == AppNotificationKind.update.rawValue {
-            completionHandler([.banner, .list])
+        if #available(macOS 11.0, *) {
+            if kind == AppNotificationKind.update.rawValue {
+                completionHandler([.banner, .list])
+            } else {
+                completionHandler([.banner, .list, .sound])
+            }
         } else {
-            completionHandler([.banner, .list, .sound])
+            if kind == AppNotificationKind.update.rawValue {
+                completionHandler([.alert])
+            } else {
+                completionHandler([.alert, .sound])
+            }
         }
     }
 
+    @available(macOS 10.14, *)
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
@@ -1387,6 +1445,7 @@ struct DeviceMenuItemView {
     }
 
     func automationPermissionStatus(for app: ManagedMediaApp, askUserIfNeeded: Bool) -> OSStatus {
+        guard #available(macOS 10.14, *) else { return noErr }
         return BLEUnlockDeterminePermissionToAutomateBundleID(app.bundleIdentifier as CFString, askUserIfNeeded)
     }
 
@@ -1400,11 +1459,13 @@ struct DeviceMenuItemView {
             return false
         }
 
-        let consentRequired = OSStatus(errAEEventWouldRequireUserConsent)
-        let eventNotPermitted = OSStatus(errAEEventNotPermitted)
-        let targetNotPermitted = OSStatus(errAETargetAddressNotPermitted)
-        if status == consentRequired || status == eventNotPermitted || status == targetNotPermitted {
-            return false
+        if #available(macOS 10.14, *) {
+            let consentRequired = OSStatus(errAEEventWouldRequireUserConsent)
+            let eventNotPermitted = OSStatus(errAEEventNotPermitted)
+            let targetNotPermitted = OSStatus(errAETargetAddressNotPermitted)
+            if status == consentRequired || status == eventNotPermitted || status == targetNotPermitted {
+                return false
+            }
         }
 
         print("Automation permission check for \(app.displayName) returned \(status)")
@@ -2073,8 +2134,10 @@ struct DeviceMenuItemView {
     func disableLegacyLoginItems() {
         for legacyLauncherBundleIdentifier in legacyLauncherBundleIdentifiers() {
             _ = SMLoginItemSetEnabled(legacyLauncherBundleIdentifier as CFString, false)
-            let service = SMAppService.loginItem(identifier: legacyLauncherBundleIdentifier)
-            try? service.unregister()
+            if #available(macOS 13.0, *) {
+                let service = SMAppService.loginItem(identifier: legacyLauncherBundleIdentifier)
+                try? service.unregister()
+            }
         }
     }
 
@@ -2597,37 +2660,47 @@ struct DeviceMenuItemView {
         for bid in allLauncherIDs {
             _ = SMLoginItemSetEnabled(bid as CFString, false)
         }
-        for bid in allLauncherIDs {
-            let helperService = SMAppService.loginItem(identifier: bid)
-            try? helperService.unregister()
+        if #available(macOS 13.0, *) {
+            for bid in allLauncherIDs {
+                let helperService = SMAppService.loginItem(identifier: bid)
+                try? helperService.unregister()
+            }
         }
     }
 
     @discardableResult
     func setLaunchAtLogin(_ enabled: Bool, showErrors: Bool = true) -> Bool {
-        // Clean up legacy helper registrations when enabling
-        if enabled {
-            cleanupAllLegacyLoginItems()
-        }
-        // Use mainApp — registers the main app itself, no Launcher helper needed.
-        let service = SMAppService.mainApp
-        do {
+        if #available(macOS 13.0, *) {
+            // Clean up legacy helper registrations when enabling
             if enabled {
-                try service.register()
-            } else {
-                try service.unregister()
-                // Clean up any leftover legacy registrations on disable too
                 cleanupAllLegacyLoginItems()
             }
-            return true
-        } catch {
-            if showErrors {
-                errorModal("Failed to update Launch at Login", info: error.localizedDescription)
-            } else {
-                print("Launch at Login update failed: \(error.localizedDescription)")
+            // Use mainApp — registers the main app itself, no Launcher helper needed.
+            let service = SMAppService.mainApp
+            do {
+                if enabled {
+                    try service.register()
+                } else {
+                    try service.unregister()
+                    // Clean up any leftover legacy registrations on disable too
+                    cleanupAllLegacyLoginItems()
+                }
+                return true
+            } catch {
+                if showErrors {
+                    errorModal("Failed to update Launch at Login", info: error.localizedDescription)
+                } else {
+                    print("Launch at Login update failed: \(error.localizedDescription)")
+                }
+                return false
             }
-            return false
         }
+
+        let ok = SMLoginItemSetEnabled(launcherBundleIdentifier() as CFString, enabled)
+        if !ok && showErrors {
+            errorModal("Failed to update Launch at Login")
+        }
+        return ok
     }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -2636,10 +2709,12 @@ struct DeviceMenuItemView {
         smdQueue.async { [weak self] in
             guard let self = self else { return }
             self.cleanupAllLegacyLoginItems()
-            let status = SMAppService.mainApp.status
-            let registered = (status == .enabled || status == .requiresApproval)
-            if registered != self.prefs.bool(forKey: "launchAtLogin") {
-                self.prefs.set(registered, forKey: "launchAtLogin")
+            if #available(macOS 13.0, *) {
+                let status = SMAppService.mainApp.status
+                let registered = (status == .enabled || status == .requiresApproval)
+                if registered != self.prefs.bool(forKey: "launchAtLogin") {
+                    self.prefs.set(registered, forKey: "launchAtLogin")
+                }
             }
         }
 
@@ -2692,9 +2767,13 @@ struct DeviceMenuItemView {
             ble.proximityTimeout = Double(lockDelay)
         }
 
-        let notificationCenter = UNUserNotificationCenter.current()
-        notificationCenter.delegate = self
-        requestNotificationAuthorization()
+        if #available(macOS 10.14, *) {
+            let notificationCenter = UNUserNotificationCenter.current()
+            notificationCenter.delegate = self
+            requestNotificationAuthorization()
+        } else {
+            NSUserNotificationCenter.default.delegate = self
+        }
 
         let nc = NSWorkspace.shared.notificationCenter;
         nc.addObserver(self, selector: #selector(onDisplaySleep), name: NSWorkspace.screensDidSleepNotification, object: nil)
