@@ -191,7 +191,6 @@ An argument is passed depending on the type of event:
 |Locked by BLEUnlock because of no signal|`lost`|
 |Unlocked by BLEUnlock|`unlocked`|
 |Unlocked manually|`intruded`|
-|Unlock failed, stored password may be wrong|`passwordError`|
 
 > NOTE: for `intruded` event works properly, you have to set *Require password **immediately** after sleep* in *Security & Privacy* preference pane.
 

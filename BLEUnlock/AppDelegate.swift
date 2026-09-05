@@ -1670,29 +1670,7 @@ struct DeviceMenuItemView {
                     guard self.isScreenLocked() else { return }
                     self.scheduleWakeUnlock(after: self.wakeUnlockRetryDelay, retryCount: retryCount + 1)
                 })
-            } else {
-                // Final attempt of this unlock cycle — verify it actually worked.
-                self.scheduleUnlockFailureCheck()
             }
-        })
-    }
-
-    var unlockFailureTimer: Timer?
-    var lastUnlockFailureEventAt = 0.0
-
-    // Fired when the screen is still locked well after we typed the stored
-    // password, i.e. the password is most likely wrong or outdated.
-    func scheduleUnlockFailureCheck(after delay: TimeInterval = 3.0) {
-        unlockFailureTimer?.invalidate()
-        unlockFailureTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false, block: { [weak self] _ in
-            guard let self = self else { return }
-            self.unlockFailureTimer = nil
-            guard self.isScreenLocked() else { return }
-            let now = Date().timeIntervalSince1970
-            guard now >= self.lastUnlockFailureEventAt + 60 else { return }
-            self.lastUnlockFailureEventAt = now
-            print("unlock failed: stored password may be wrong")
-            self.runScript("passwordError")
         })
     }
 
@@ -1703,8 +1681,6 @@ struct DeviceMenuItemView {
         wakeUnlockTimer = nil
         postUnlockRetryTimer?.invalidate()
         postUnlockRetryTimer = nil
-        unlockFailureTimer?.invalidate()
-        unlockFailureTimer = nil
     }
 
     func scheduleWakeUnlock(after delay: TimeInterval, retryCount: Int = 0) {
