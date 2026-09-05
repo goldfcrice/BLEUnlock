@@ -234,6 +234,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemVa
     var deviceMenu = NSMenu()
     let unlockSettingsMenu = NSMenu()
     let lockSettingsMenu = NSMenu()
+    let notifyMenu = NSMenu()
     let timeoutMenu = NSMenu()
     let lockDelayMenu = NSMenu()
     let updateMenu = NSMenu()
@@ -265,6 +266,7 @@ struct DeviceMenuItemView {
     var aboutBox: AboutBox? = nil
     var manualLock = false
     var unlockedAt = 0.0
+    let remoteNotifier = RemoteNotifier()
     let authFailureMonitor = AuthFailureMonitor()
     var inScreensaver = false
     var lastRSSI: Int? = nil
@@ -337,7 +339,103 @@ struct DeviceMenuItemView {
                     item.state = .off
                 }
             }
+        } else if menu == notifyMenu {
+            refreshNotifyMenu()
         }
+    }
+
+    private static let notifyRSSIMenuItemKind = "notifyRSSI"
+    private static let notifyEventMenuItemKind = "notifyEvent"
+
+    func refreshNotifyMenu() {
+        let minRSSI = prefs.integer(forKey: RemoteNotifier.notifyMinRSSIKey)
+        for item in notifyMenu.items {
+            if item.representedObject as? String == AppDelegate.notifyRSSIMenuItemKind {
+                item.state = item.tag == minRSSI ? .on : .off
+            } else if item.representedObject as? String == AppDelegate.notifyEventMenuItemKind,
+                      let event = item.toolTip, let key = notifyEventKey(for: event) {
+                item.state = prefs.bool(forKey: key) ? .on : .off
+            }
+        }
+    }
+
+    @objc func setNotifyRSSI(_ menuItem: NSMenuItem) {
+        prefs.set(menuItem.tag, forKey: RemoteNotifier.notifyMinRSSIKey)
+        refreshNotifyMenu()
+    }
+
+    @objc func toggleNotifyEvent(_ menuItem: NSMenuItem) {
+        guard let event = menuItem.toolTip, let key = notifyEventKey(for: event) else { return }
+        prefs.set(!prefs.bool(forKey: key), forKey: key)
+        refreshNotifyMenu()
+    }
+
+    @objc func toggleNotifyPhoto(_ menuItem: NSMenuItem) {
+        let value = !prefs.bool(forKey: RemoteNotifier.notifyWithPhotoKey)
+        menuItem.state = value ? .on : .off
+        prefs.set(value, forKey: RemoteNotifier.notifyWithPhotoKey)
+    }
+
+    @objc func setupTelegram() {
+        let msg = NSAlert()
+        msg.addButton(withTitle: t("ok"))
+        msg.addButton(withTitle: t("cancel"))
+        msg.messageText = t("telegram_settings")
+        msg.informativeText = t("telegram_settings_info")
+        msg.window.title = "BLEUnlock"
+
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 300, height: 56))
+        stack.orientation = .vertical
+        let tokenField = NSTextField(frame: NSRect(x: 0, y: 36, width: 300, height: 22))
+        tokenField.placeholderString = "Bot token (123456:ABC-DEF...)"
+        tokenField.stringValue = prefs.string(forKey: RemoteNotifier.telegramBotTokenKey) ?? ""
+        let chatField = NSTextField(frame: NSRect(x: 0, y: 8, width: 300, height: 22))
+        chatField.placeholderString = "Chat ID"
+        chatField.stringValue = prefs.string(forKey: RemoteNotifier.telegramChatIDKey) ?? ""
+        stack.addArrangedSubview(tokenField)
+        stack.addArrangedSubview(chatField)
+        msg.accessoryView = stack
+        tokenField.becomeFirstResponder()
+        NSApp.activate(ignoringOtherApps: true)
+        if msg.runModal() == .alertFirstButtonReturn {
+            prefs.set(tokenField.stringValue.trimmingCharacters(in: .whitespaces), forKey: RemoteNotifier.telegramBotTokenKey)
+            prefs.set(chatField.stringValue.trimmingCharacters(in: .whitespaces), forKey: RemoteNotifier.telegramChatIDKey)
+        }
+    }
+
+    @objc func setupBark() {
+        let msg = NSAlert()
+        msg.addButton(withTitle: t("ok"))
+        msg.addButton(withTitle: t("cancel"))
+        msg.messageText = t("bark_settings")
+        msg.informativeText = t("bark_settings_info")
+        msg.window.title = "BLEUnlock"
+
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 300, height: 56))
+        stack.orientation = .vertical
+        let serverField = NSTextField(frame: NSRect(x: 0, y: 36, width: 300, height: 22))
+        serverField.placeholderString = "https://api.day.app"
+        serverField.stringValue = prefs.string(forKey: RemoteNotifier.barkServerKey) ?? ""
+        let keyField = NSTextField(frame: NSRect(x: 0, y: 8, width: 300, height: 22))
+        keyField.placeholderString = "Device key"
+        keyField.stringValue = prefs.string(forKey: RemoteNotifier.barkDeviceKeyKey) ?? ""
+        stack.addArrangedSubview(serverField)
+        stack.addArrangedSubview(keyField)
+        msg.accessoryView = stack
+        serverField.becomeFirstResponder()
+        NSApp.activate(ignoringOtherApps: true)
+        if msg.runModal() == .alertFirstButtonReturn {
+            prefs.set(serverField.stringValue.trimmingCharacters(in: .whitespaces), forKey: RemoteNotifier.barkServerKey)
+            prefs.set(keyField.stringValue.trimmingCharacters(in: .whitespaces), forKey: RemoteNotifier.barkDeviceKeyKey)
+        }
+    }
+
+    @objc func sendTestNotification() {
+        if !remoteNotifier.hasChannel {
+            errorModal(t("notify_no_channel"))
+            return
+        }
+        remoteNotifier.sendTest()
     }
 
     func deviceListAttributedTitle() -> NSAttributedString {
@@ -1302,6 +1400,7 @@ struct DeviceMenuItemView {
     }
 
     func runScript(_ arg: String) {
+        remoteNotifier.handle(event: arg, rssi: lastRSSI)
         guard let directory = try? FileManager.default.url(for: .applicationScriptsDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return }
         let file = directory.appendingPathComponent("event")
         let process = Process()
@@ -2446,6 +2545,31 @@ struct DeviceMenuItemView {
         
         mainMenu.addItem(withTitle: t("set_rssi_threshold"), action: #selector(setRSSIThreshold),
                          keyEquivalent: "")
+
+        // Remote notify submenu
+        let notifyItem = mainMenu.addItem(withTitle: t("remote_notify"), action: nil, keyEquivalent: "")
+        notifyItem.submenu = notifyMenu
+        notifyMenu.delegate = self
+        notifyMenu.addItem(withTitle: t("notify_min_rssi"), action: nil, keyEquivalent: "")
+        addSettingsItem(notifyMenu, title: t("always_notify"), action: #selector(setNotifyRSSI(_:)), tag: 0, kind: AppDelegate.notifyRSSIMenuItemKind)
+        for proximity in stride(from: -30, to: -100, by: -5) {
+            addSettingsItem(notifyMenu, title: String(format: "%ddBm", proximity), action: #selector(setNotifyRSSI(_:)), tag: proximity, kind: AppDelegate.notifyRSSIMenuItemKind)
+        }
+        notifyMenu.addItem(NSMenuItem.separator())
+        notifyMenu.addItem(withTitle: t("notify_events"), action: nil, keyEquivalent: "")
+        for event in notifyEventNames {
+            let eventItem = notifyMenu.addItem(withTitle: t("notify_event_" + event), action: #selector(toggleNotifyEvent(_:)), keyEquivalent: "")
+            eventItem.toolTip = event
+            eventItem.representedObject = AppDelegate.notifyEventMenuItemKind
+        }
+        notifyMenu.addItem(NSMenuItem.separator())
+        let photoItem = notifyMenu.addItem(withTitle: t("notify_with_photo"), action: #selector(toggleNotifyPhoto(_:)), keyEquivalent: "")
+        photoItem.state = prefs.bool(forKey: RemoteNotifier.notifyWithPhotoKey) ? .on : .off
+        notifyMenu.addItem(withTitle: t("telegram_settings"), action: #selector(setupTelegram), keyEquivalent: "")
+        notifyMenu.addItem(withTitle: t("bark_settings"), action: #selector(setupBark), keyEquivalent: "")
+        notifyMenu.addItem(withTitle: t("send_test_notification"), action: #selector(sendTestNotification), keyEquivalent: "")
+        refreshNotifyMenu()
+
         let updateItem = mainMenu.addItem(withTitle: t("updates"), action: nil, keyEquivalent: "")
         updateMenuItem = updateItem
         updateItem.submenu = updateMenu

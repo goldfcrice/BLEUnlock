@@ -64,3 +64,20 @@
 "wake_on_proximity" = "靠近唤醒";
 "wake_without_unlocking" = "唤醒时不需解锁";
 "pair_for_mac_hint" = "配对以稳定追踪随机地址 →";
+
+"remote_notify" = "远程通知…";
+"notify_min_rssi" = "通知最小 RSSI";
+"always_notify" = "总是通知";
+"notify_events" = "触发事件";
+"notify_event_authFailed" = "锁屏界面密码错误";
+"notify_event_intruded" = "被手动解锁";
+"notify_event_away" = "锁定（设备离开）";
+"notify_event_lost" = "锁定（信号丢失）";
+"notify_event_unlocked" = "BLEUnlock 解锁";
+"notify_with_photo" = "附带照片";
+"telegram_settings" = "Telegram 设置…";
+"telegram_settings_info" = "填写 Bot Token 和 Chat ID，留空则不启用 Telegram。";
+"bark_settings" = "Bark 设置…";
+"bark_settings_info" = "填写 Bark 服务器地址和 Device Key，Key 留空则不启用 Bark。";
+"send_test_notification" = "发送测试通知";
+"notify_no_channel" = "尚未配置通知渠道，请先设置 Telegram 或 Bark。";

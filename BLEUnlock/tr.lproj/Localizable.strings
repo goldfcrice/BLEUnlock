@@ -41,3 +41,20 @@
 "wake_on_proximity" = "Uyandırma yakınlığı";
 "wake_without_unlocking" = "Kilidi açmadan uyanın";
 "pair_for_mac_hint" = "Pair to stabilize random address tracking →";
+
+"remote_notify" = "Remote Notifications…";
+"notify_min_rssi" = "Minimum RSSI";
+"always_notify" = "Always notify";
+"notify_events" = "Trigger Events";
+"notify_event_authFailed" = "Wrong password at lock screen";
+"notify_event_intruded" = "Unlocked manually";
+"notify_event_away" = "Locked (device away)";
+"notify_event_lost" = "Locked (signal lost)";
+"notify_event_unlocked" = "Unlocked by BLEUnlock";
+"notify_with_photo" = "Attach photo";
+"telegram_settings" = "Telegram Settings…";
+"telegram_settings_info" = "Enter your bot token and chat ID. Leave the fields empty to disable Telegram.";
+"bark_settings" = "Bark Settings…";
+"bark_settings_info" = "Enter your Bark server URL and device key. Leave the key empty to disable Bark.";
+"send_test_notification" = "Send Test Notification";
+"notify_no_channel" = "No notification channel configured. Set up Telegram or Bark first.";
