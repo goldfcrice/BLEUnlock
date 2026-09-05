@@ -27,6 +27,87 @@ private enum AppNotificationKind: String {
     case update
 }
 
+// Watches the unified log for failed password attempts at the lock screen
+// (loginwindow/SecurityAgent emit "Authentication failure" / "INCORRECT" /
+// "APEventTouchIDNoMatch" entries that are not privacy-redacted).
+class AuthFailureMonitor {
+    private var process: Process?
+    private var restartTimer: Timer?
+    private var lastEventAt = 0.0
+    private var lineBuffer = ""
+    var onAuthFailure: (() -> Void)?
+
+    private static let predicate =
+        "(process == \"loginwindow\" OR process == \"SecurityAgent\" OR process == \"ScreenSaverEngine\") AND " +
+        "(eventMessage CONTAINS[c] \"Authentication failure\" OR " +
+        "eventMessage CONTAINS[c] \"INCORRECT\" OR " +
+        "eventMessage CONTAINS[c] \"APEventTouchIDNoMatch\")"
+
+    func start() {
+        guard process == nil else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/log")
+        p.arguments = ["stream", "--style", "compact", "--predicate", Self.predicate]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe() // silence log(1) chatter
+        lineBuffer = ""
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let chunk = String(data: handle.availableData, encoding: .utf8) ?? ""
+            DispatchQueue.main.async { self?.ingest(chunk) }
+        }
+        p.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.process = nil
+                // log stream can die (logd restarts, system sleep); come back after a pause.
+                self?.restartTimer?.invalidate()
+                self?.restartTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+                    self?.restartTimer = nil
+                    self?.start()
+                }
+            }
+        }
+        do {
+            try p.run()
+            process = p
+        } catch {
+            print("AuthFailureMonitor: failed to start log stream: \(error)")
+        }
+    }
+
+    func stop() {
+        restartTimer?.invalidate()
+        restartTimer = nil
+        guard let p = process else { return }
+        p.terminationHandler = nil
+        process = nil
+        if let pipe = p.standardOutput as? Pipe {
+            pipe.fileHandleForReading.readabilityHandler = nil
+        }
+        p.terminate()
+    }
+
+    private func ingest(_ chunk: String) {
+        guard !chunk.isEmpty else { return }
+        lineBuffer += chunk
+        var lines = lineBuffer.components(separatedBy: "\n")
+        lineBuffer = lines.removeLast()
+        for line in lines where Self.looksLikeAuthFailure(line) {
+            let now = Date().timeIntervalSince1970
+            guard now >= lastEventAt + 2 else { continue } // one wrong attempt can log several entries
+            lastEventAt = now
+            onAuthFailure?()
+        }
+    }
+
+    private static func looksLikeAuthFailure(_ line: String) -> Bool {
+        let l = line.lowercased()
+        return l.contains("authentication failure")
+            || l.contains("incorrect")
+            || l.contains("apeventtouchidnomatch")
+    }
+}
+
 enum ManagedMediaApp: String, CaseIterable, Hashable {
     case music
     case quickTimePlayer
@@ -184,6 +265,7 @@ struct DeviceMenuItemView {
     var aboutBox: AboutBox? = nil
     var manualLock = false
     var unlockedAt = 0.0
+    let authFailureMonitor = AuthFailureMonitor()
     var inScreensaver = false
     var lastRSSI: Int? = nil
     var deviceMenuIsOpen = false
@@ -2575,6 +2657,15 @@ struct DeviceMenuItemView {
         dnc.addObserver(self, selector: #selector(onUnlock), name: NSNotification.Name(rawValue: "com.apple.screenIsUnlocked"), object: nil)
         dnc.addObserver(self, selector: #selector(onScreensaverStart), name: NSNotification.Name(rawValue: "com.apple.screensaver.didstart"), object: nil)
         dnc.addObserver(self, selector: #selector(onScreensaverStop), name: NSNotification.Name(rawValue: "com.apple.screensaver.didstop"), object: nil)
+
+        authFailureMonitor.onAuthFailure = { [weak self] in
+            guard let self = self else { return }
+            // Only report failures against the lock screen / screensaver, not
+            // unrelated auth failures (sudo, Mail, etc.) that share the log text.
+            guard self.isScreenLocked() || self.inScreensaver else { return }
+            self.runScript("authFailed")
+        }
+        authFailureMonitor.start()
 
         if ble.unlockRSSI != ble.UNLOCK_DISABLED && !prefs.bool(forKey: "wakeWithoutUnlocking") && fetchPassword() == nil {
             askPassword()
