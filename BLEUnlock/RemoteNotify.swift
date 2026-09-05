@@ -31,12 +31,8 @@ class RemoteNotifier {
             self.send(title: title, body: body, photo: photo)
         }
         if prefs.bool(forKey: Self.notifyWithPhotoKey) {
-            if #available(macOS 10.15, *) {
-                PhotoCapture.capture { photo in
-                    send(photo)
-                }
-            } else {
-                send(nil)
+            PhotoCapture.capture { photo in
+                send(photo)
             }
         } else {
             send(nil)
@@ -46,12 +42,8 @@ class RemoteNotifier {
     func sendTest() {
         let body = composeBody(event: "test", rssi: nil)
         if prefs.bool(forKey: Self.notifyWithPhotoKey) {
-            if #available(macOS 10.15, *) {
-                PhotoCapture.capture { photo in
-                    self.send(title: "BLEUnlock", body: body, photo: photo)
-                }
-            } else {
-                send(title: "BLEUnlock", body: body, photo: nil)
+            PhotoCapture.capture { photo in
+                self.send(title: "BLEUnlock", body: body, photo: photo)
             }
         } else {
             send(title: "BLEUnlock", body: body, photo: nil)
@@ -166,7 +158,6 @@ class RemoteNotifier {
 
 // Grabs a single JPEG frame from the front camera. Runs its work off the main
 // thread; completion is called with nil on any failure (or a TCC denial).
-@available(macOS 10.15, *)
 class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
     private static let queue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.photo-capture")
     private var completion: ((Data?) -> Void)?
