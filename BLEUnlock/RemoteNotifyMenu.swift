@@ -50,8 +50,6 @@ extension AppDelegate {
     }
 
 
-    private static let notifyRSSIMenuItemKind = "notifyRSSI"
-
     func refreshNotifyMenu() {
         let minRSSI = prefs.integer(forKey: RemoteNotifier.notifyMinRSSIKey)
         for item in notifyMenu.items {
