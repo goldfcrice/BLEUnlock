@@ -37,10 +37,13 @@ class AuthFailureMonitor {
     private var lineBuffer = ""
     var onAuthFailure: (() -> Void)?
 
-    // Keep in sync with looksLikeAuthFailure below.
+    // Keep in sync with looksLikeAuthFailure below. "Authentication fail"
+    // covers both "Authentication failure" (loginwindow/SecurityAgent on
+    // older macOS) and "Authentication failed ... ODErrorCredentialsInvalid"
+    // (opendirectoryd on newer macOS).
     private static let predicate =
-        "(process == \"loginwindow\" OR process == \"SecurityAgent\") AND " +
-        "(eventMessage CONTAINS[c] \"Authentication failure\" OR " +
+        "(process == \"loginwindow\" OR process == \"SecurityAgent\" OR process == \"opendirectoryd\") AND " +
+        "(eventMessage CONTAINS[c] \"Authentication fail\" OR " +
         "eventMessage CONTAINS[c] \"INCORRECT\" OR " +
         "eventMessage CONTAINS[c] \"APEventTouchIDNoMatch\")"
 
@@ -115,7 +118,7 @@ class AuthFailureMonitor {
 
     private static func looksLikeAuthFailure(process: String, message: String) -> Bool {
         let m = message.lowercased()
-        if m.contains("authentication failure") || m.contains("apeventtouchidnomatch") {
+        if m.contains("authentication fail") || m.contains("apeventtouchidnomatch") {
             return true
         }
         // "incorrect" only counts from the lock-screen UI processes; keep this
