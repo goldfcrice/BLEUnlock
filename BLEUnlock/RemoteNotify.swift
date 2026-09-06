@@ -122,15 +122,16 @@ class RemoteNotifier {
             .appendingPathComponent("Pictures/BLEUnlock", isDirectory: true)
     }
 
-    func savePhotoLocally(_ photo: Data, event: String) {
+    func savePhotoLocally(_ photo: Data, event: String, rssi: Int?) {
         guard prefs.bool(forKey: Self.savePhotoLocallyKey) else { return }
+        guard let annotated = Self.annotatedJPEG(photo, event: event, rssi: rssi) else { return }
         let dir = Self.photoDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let df = DateFormatter()
         df.dateFormat = "yyyyMMdd-HHmmss"
         let name = "\(df.string(from: Date()))-\(event).jpg"
         do {
-            try photo.write(to: dir.appendingPathComponent(name))
+            try annotated.write(to: dir.appendingPathComponent(name))
         } catch {
             print("RemoteNotifier: failed to save photo locally: \(error.localizedDescription)")
         }
@@ -197,7 +198,7 @@ class RemoteNotifier {
         // Drawing happens via NSImage focus; keep it on the main thread.
         DispatchQueue.main.async {
             if let photo {
-                self.savePhotoLocally(photo, event: event)
+                self.savePhotoLocally(photo, event: event, rssi: rssi)
             }
             if self.telegramConfigured && self.channelEnabled("telegram") {
                 let image = photo.flatMap { Self.annotatedJPEG($0, event: event, rssi: rssi) }
@@ -216,7 +217,7 @@ class RemoteNotifier {
     }
 
     // Burns a caption bar (timestamp | event | RSSI) into the photo before it
-    // is sent. The locally saved copy keeps the untouched original.
+    // is sent or saved locally.
     private static func annotatedJPEG(_ data: Data, event: String, rssi: Int?) -> Data? {
         guard let image = NSImage(data: data) else { return nil }
         let size = image.size
