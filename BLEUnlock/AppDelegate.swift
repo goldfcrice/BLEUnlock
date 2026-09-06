@@ -2595,9 +2595,11 @@ struct DeviceMenuItemView {
         let noteItem = notifyMenu.addItem(withTitle: t("notify_threshold_note"), action: nil, keyEquivalent: "")
         noteItem.isEnabled = false
         addSettingsItem(notifyMenu, title: t("always_notify"), action: #selector(setNotifyRSSI(_:)), tag: 0, kind: AppDelegate.notifyRSSIMenuItemKind)
+        notifyMenu.addItem(withTitle: t("closer"), action: nil, keyEquivalent: "")
         for proximity in stride(from: -30, to: -100, by: -5) {
             addSettingsItem(notifyMenu, title: String(format: "%ddBm", proximity), action: #selector(setNotifyRSSI(_:)), tag: proximity, kind: AppDelegate.notifyRSSIMenuItemKind)
         }
+        notifyMenu.addItem(withTitle: t("farther"), action: nil, keyEquivalent: "")
         notifyMenu.addItem(NSMenuItem.separator())
         notifyMenu.addItem(withTitle: t("notify_events"), action: nil, keyEquivalent: "")
         for event in notifyEventNames {
@@ -2610,6 +2612,8 @@ struct DeviceMenuItemView {
         let savePhotoItem = notifyMenu.addItem(withTitle: t("save_photo_locally"), action: #selector(toggleNotifySavePhoto(_:)), keyEquivalent: "")
         savePhotoItem.state = prefs.bool(forKey: RemoteNotifier.savePhotoLocallyKey) ? .on : .off
         notifyMenu.addItem(withTitle: t("open_photo_folder"), action: #selector(openPhotoFolder), keyEquivalent: "")
+        notifyMenu.addItem(NSMenuItem.separator())
+        notifyMenu.addItem(withTitle: t("notify_channels"), action: nil, keyEquivalent: "")
         notifyMenu.addItem(withTitle: t("telegram_settings"), action: #selector(setupTelegram), keyEquivalent: "")
         notifyMenu.addItem(withTitle: t("bark_settings"), action: #selector(setupBark), keyEquivalent: "")
         notifyMenu.addItem(withTitle: t("wecom_settings"), action: #selector(setupWecom), keyEquivalent: "")
@@ -2746,6 +2750,7 @@ struct DeviceMenuItemView {
     }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
+        installEditMenuForTextFields()
         migrateLegacyAppDataIfNeeded()
         // Clean up all legacy login items and sync pref with actual registration state.
         smdQueue.async { [weak self] in
@@ -2864,6 +2869,23 @@ struct DeviceMenuItemView {
         refreshPermissionRecovery()
     }
     
+    // A menu-bar app has no main menu, so text fields in our NSAlerts would
+    // ignore Cmd+C/V/X/A. A minimal hidden Edit menu routes the shortcuts.
+    private func installEditMenuForTextFields() {
+        if NSApp.mainMenu == nil {
+            NSApp.mainMenu = NSMenu(title: "BLEUnlock")
+        }
+        guard NSApp.mainMenu?.items.first?.submenu?.title != "Edit" else { return }
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        NSApp.mainMenu?.insertItem(editMenuItem, at: 0)
+    }
+
     func applicationWillTerminate(_ aNotification: Notification) {
         permissionRecoveryTimer?.invalidate()
         permissionRecoveryTimer = nil

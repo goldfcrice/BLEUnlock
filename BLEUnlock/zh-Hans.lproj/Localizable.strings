@@ -88,3 +88,5 @@
 "open_photo_folder" = "打开图片目录";
 "wecom_settings" = "企业微信设置…";
 "wecom_settings_info" = "填写群机器人 Webhook 地址中 key= 后面的部分，留空则不启用。";
+
+"notify_channels" = "通知渠道";

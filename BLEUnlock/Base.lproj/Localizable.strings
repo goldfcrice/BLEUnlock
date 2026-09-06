@@ -88,3 +88,5 @@
 "open_photo_folder" = "Open photo folder";
 "wecom_settings" = "WeCom Bot Settings…";
 "wecom_settings_info" = "Enter the group bot webhook key (the part after key= in the webhook URL). Leave empty to disable WeCom.";
+
+"notify_channels" = "Notification Channels";
