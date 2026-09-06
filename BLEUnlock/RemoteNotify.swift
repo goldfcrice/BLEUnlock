@@ -280,7 +280,7 @@ class RemoteNotifier {
         let text = "BLEUnlock\n\(body)"
 
         if let photo {
-            guard let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendPhoto") else { return }
+            guard let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendPhoto") else { completion?(false); return }
             var request = URLRequest(url: url)
             let boundary = "BLEUnlock-\(UUID().uuidString)"
             request.httpMethod = "POST"
@@ -297,7 +297,7 @@ class RemoteNotifier {
             request.httpBody = data
             run(request, channel: "telegram", completion: completion)
         } else {
-            guard let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendMessage") else { return }
+            guard let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendMessage") else { completion?(false); return }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -316,7 +316,7 @@ class RemoteNotifier {
         var server = barkServer
         if server.isEmpty { server = "https://api.day.app" }
         while server.hasSuffix("/") { server.removeLast() }
-        guard let url = URL(string: "\(server)/\(urlEncoded(barkDeviceKey))") else { return }
+        guard let url = URL(string: "\(server)/\(urlEncoded(barkDeviceKey))") else { completion?(false); return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -333,7 +333,7 @@ class RemoteNotifier {
     // photo was captured (image limit is 2MB before base64).
     private func sendWecom(body: String, photo: Data?, completion: ((Bool) -> Void)? = nil) {
         let base = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=\(wecomKey)"
-        guard let url = URL(string: base) else { return }
+        guard let url = URL(string: base) else { completion?(false); return }
 
         var anyFailed = false
         var remaining = 1 + (photo != nil ? 1 : 0)
@@ -367,7 +367,7 @@ class RemoteNotifier {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func downscaledJPEG(_ data: Data, maxPixel: Int = 480) -> Data? {
+    private static func downscaledJPEG(_ data: Data, maxPixel: Int) -> Data? {
         guard let src = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
               let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
