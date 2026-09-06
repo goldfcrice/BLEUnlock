@@ -62,7 +62,13 @@ jobs:
 
           APP_PATH="build/Build/Products/Release/BLEUnlock.app"
           ENTITLEMENTS_PATH="BLEUnlock/BLEUnlock.entitlements"
-          /usr/bin/codesign --force --deep --options runtime --entitlements "${ENTITLEMENTS_PATH}" --sign "${MACOS_SIGNING_IDENTITY}" "${APP_PATH}"
+          if [ -n "${MACOS_SIGNING_IDENTITY}" ]; then
+            /usr/bin/codesign --force --deep --options runtime --entitlements "${ENTITLEMENTS_PATH}" --sign "${MACOS_SIGNING_IDENTITY}" "${APP_PATH}"
+          else
+            # Always sign the bundle, even without a real identity: an unsigned
+            # app bundle cannot hold TCC grants and re-prompts every launch.
+            /usr/bin/codesign --force --deep --entitlements "${ENTITLEMENTS_PATH}" --sign - "${APP_PATH}"
+          fi
 
       - name: Package DMG
         run: |
