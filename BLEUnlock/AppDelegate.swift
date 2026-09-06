@@ -365,6 +365,10 @@ struct DeviceMenuItemView {
                       let channel = item.submenu?.items.first?.representedObject as? String {
                 let enabled = remoteNotifier.channelEnabled(channel) && remoteNotifier.isChannelConfigured(channel)
                 item.state = enabled ? .on : .off
+                // Keep the submenu's enable item in sync — otherwise a stale
+                // unchecked display would make the next click flip a stored
+                // "on" back off.
+                item.submenu?.items.first?.state = remoteNotifier.channelEnabled(channel) ? .on : .off
             }
         }
     }
