@@ -1,5 +1,6 @@
 import Cocoa
 import AVFoundation
+import os
 import ImageIO
 import Security
 import CommonCrypto
@@ -140,9 +141,19 @@ class RemoteNotifier {
     // MARK: - Dispatch
 
     func handle(event: String, rssi: Int?) {
-        guard let key = notifyEventKey(for: event), prefs.bool(forKey: key) else { return }
-        if let rssi, !passesRSSIThreshold(rssi) { return }
-        guard hasChannel else { return }
+        guard let key = notifyEventKey(for: event), prefs.bool(forKey: key) else {
+            os_log("notify skipped: event %{public}@ not checked", log: appLog, type: .info, event)
+            return
+        }
+        if let rssi, !passesRSSIThreshold(rssi) {
+            os_log("notify skipped: RSSI %{public}d below threshold", log: appLog, type: .info, rssi)
+            return
+        }
+        guard hasChannel else {
+            os_log("notify skipped: no enabled+configured channel", log: appLog, type: .info)
+            return
+        }
+        os_log("notify dispatching event %{public}@", log: appLog, type: .info, event)
         notify(event: event, rssi: rssi)
     }
 

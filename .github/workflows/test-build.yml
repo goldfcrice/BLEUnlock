@@ -55,11 +55,6 @@ jobs:
         env:
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
-          if [ -z "${MACOS_SIGNING_IDENTITY}" ]; then
-            echo "MACOS_SIGNING_IDENTITY is not set. Skipping code signing."
-            exit 0
-          fi
-
           APP_PATH="build/Build/Products/Release/BLEUnlock.app"
           ENTITLEMENTS_PATH="BLEUnlock/BLEUnlock.entitlements"
           if [ -n "${MACOS_SIGNING_IDENTITY}" ]; then

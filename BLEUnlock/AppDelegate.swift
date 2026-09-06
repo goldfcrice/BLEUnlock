@@ -1,5 +1,6 @@
 import Cocoa
 import CoreGraphics
+import os
 import ServiceManagement
 import UserNotifications
 import IOBluetooth
@@ -7,6 +8,8 @@ import IOBluetooth
 func t(_ key: String) -> String {
     return NSLocalizedString(key, comment: "")
 }
+
+let appLog = OSLog(subsystem: "com.github.goldfcrice.BLEUnlock", category: "notify")
 
 private let currentAppBundleIdentifier = "com.github.goldfcrice.BLEUnlock"
 private let legacyMainBundleIdentifiers = ["com.github.huang-zs.BLEUnlock", "com.github.Skyearn.BLEUnlock", "jp.sone.BLEUnlock"]
@@ -122,6 +125,7 @@ class AuthFailureMonitor {
             let now = Date().timeIntervalSince1970
             guard now >= lastEventAt + 2 else { continue } // one wrong attempt can log several entries
             lastEventAt = now
+            os_log("auth-failure matched from %{public}@, dispatching callback", log: appLog, type: .info, process)
             onAuthFailure?()
         }
     }
@@ -2897,7 +2901,9 @@ struct DeviceMenuItemView {
             guard let self = self else { return }
             // Only report failures against the lock screen / screensaver, not
             // unrelated auth failures (sudo, Mail, etc.) that share the log text.
-            guard self.isScreenLocked() || self.inScreensaver else { return }
+            let locked = self.isScreenLocked()
+            os_log("auth-failure callback: locked=%{public}d screensaver=%{public}d", log: appLog, type: .info, locked, self.inScreensaver)
+            guard locked || self.inScreensaver else { return }
             self.runScript("authFailed")
         }
         syncAuthFailureMonitor()
