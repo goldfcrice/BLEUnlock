@@ -1,5 +1,6 @@
 import Cocoa
 import AVFoundation
+import Security
 
 let notifyEventNames = ["authFailed", "intruded", "away", "lost", "unlocked"]
 
@@ -8,27 +9,112 @@ func notifyEventKey(for event: String) -> String? {
     return "notifyEvent_" + event
 }
 
+// Credentials (Telegram token, Bark key) live in the Keychain, not UserDefaults.
+enum CredentialStore {
+    private static let service = "com.github.goldfcrice.BLEUnlock.remote-notify"
+
+    static func set(_ value: String, account: String) {
+        let query: [String: Any] = [
+            String(kSecClass): kSecClassGenericPassword,
+            String(kSecAttrService): service,
+            String(kSecAttrAccount): account,
+        ]
+        SecItemDelete(query as CFDictionary)
+        guard !value.isEmpty else { return }
+        var add = query
+        add[String(kSecValueData)] = Data(value.utf8)
+        add[String(kSecAttrAccessible)] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    static func get(_ account: String) -> String? {
+        let query: [String: Any] = [
+            String(kSecClass): kSecClassGenericPassword,
+            String(kSecAttrService): service,
+            String(kSecAttrAccount): account,
+            String(kSecReturnData): true,
+            String(kSecMatchLimit): kSecMatchLimitOne,
+        ]
+        var item: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    // One-time move of values that earlier builds stored in UserDefaults.
+    static func migrateFromDefaults(_ key: String, account: String) {
+        let prefs = UserDefaults.standard
+        guard prefs.object(forKey: key) != nil else { return }
+        let value = prefs.string(forKey: key) ?? ""
+        set(value, account: account)
+        prefs.removeObject(forKey: key)
+    }
+}
+
 class RemoteNotifier {
     static let notifyMinRSSIKey = "notifyMinRSSI"
     static let notifyWithPhotoKey = "notifyWithPhoto"
-    static let telegramBotTokenKey = "telegramBotToken"
-    static let telegramChatIDKey = "telegramChatID"
-    static let barkServerKey = "barkServer"
-    static let barkDeviceKeyKey = "barkDeviceKey"
+
+    private static let telegramTokenAccount = "telegramToken"
+    private static let telegramChatIDAccount = "telegramChatID"
+    private static let barkServerAccount = "barkServer"
+    private static let barkDeviceKeyAccount = "barkDeviceKey"
+    private static let legacyDefaultsAccounts = [
+        "telegramBotToken": telegramTokenAccount,
+        "telegramChatID": telegramChatIDAccount,
+        "barkServer": barkServerAccount,
+        "barkDeviceKey": barkDeviceKeyAccount,
+    ]
 
     private let prefs = UserDefaults.standard
     private let session = URLSession.shared
+
+    init() {
+        for (key, account) in Self.legacyDefaultsAccounts {
+            CredentialStore.migrateFromDefaults(key, account: account)
+        }
+    }
+
+    // MARK: - Configuration
+
+    var telegramToken: String { CredentialStore.get(Self.telegramTokenAccount) ?? "" }
+    var telegramChatID: String { CredentialStore.get(Self.telegramChatIDAccount) ?? "" }
+    var barkServer: String { CredentialStore.get(Self.barkServerAccount) ?? "" }
+    var barkDeviceKey: String { CredentialStore.get(Self.barkDeviceKeyAccount) ?? "" }
+
+    static func setTelegram(token: String, chatID: String) {
+        CredentialStore.set(token, account: telegramTokenAccount)
+        CredentialStore.set(chatID, account: telegramChatIDAccount)
+    }
+
+    static func setBark(server: String, deviceKey: String) {
+        CredentialStore.set(server, account: barkServerAccount)
+        CredentialStore.set(deviceKey, account: barkDeviceKeyAccount)
+    }
+
+    var hasChannel: Bool {
+        telegramConfigured || barkConfigured
+    }
+
+    var telegramConfigured: Bool {
+        !telegramToken.isEmpty && !telegramChatID.isEmpty
+    }
+
+    var barkConfigured: Bool {
+        !barkDeviceKey.isEmpty
+    }
+
+    // MARK: - Dispatch
 
     func handle(event: String, rssi: Int?) {
         guard let key = notifyEventKey(for: event), prefs.bool(forKey: key) else { return }
         if let rssi, !passesRSSIThreshold(rssi) { return }
 
-        let title = "BLEUnlock"
         let body = composeBody(event: event, rssi: rssi)
         guard hasChannel else { return }
 
         let send = { (photo: Data?) in
-            self.send(title: title, body: body, photo: photo)
+            self.send(body: body, photo: photo)
         }
         if prefs.bool(forKey: Self.notifyWithPhotoKey) {
             if #available(macOS 10.15, *) {
@@ -45,30 +131,18 @@ class RemoteNotifier {
 
     func sendTest() {
         let body = composeBody(event: "test", rssi: nil)
+        guard hasChannel else { return }
         if prefs.bool(forKey: Self.notifyWithPhotoKey) {
             if #available(macOS 10.15, *) {
                 PhotoCapture.capture { photo in
-                    self.send(title: "BLEUnlock", body: body, photo: photo)
+                    self.send(body: body, photo: photo)
                 }
             } else {
-                send(title: "BLEUnlock", body: body, photo: nil)
+                send(body: body, photo: nil)
             }
         } else {
-            send(title: "BLEUnlock", body: body, photo: nil)
+            send(body: body, photo: nil)
         }
-    }
-
-    var hasChannel: Bool {
-        telegramConfigured || barkConfigured
-    }
-
-    var telegramConfigured: Bool {
-        !(prefs.string(forKey: Self.telegramBotTokenKey) ?? "").isEmpty &&
-        !(prefs.string(forKey: Self.telegramChatIDKey) ?? "").isEmpty
-    }
-
-    var barkConfigured: Bool {
-        !(prefs.string(forKey: Self.barkDeviceKeyKey) ?? "").isEmpty
     }
 
     func passesRSSIThreshold(_ rssi: Int) -> Bool {
@@ -87,22 +161,20 @@ class RemoteNotifier {
 
     // MARK: - Sending
 
-    private func send(title: String, body: String, photo: Data?) {
+    private func send(body: String, photo: Data?) {
         if telegramConfigured {
-            sendTelegram(title: title, body: body, photo: photo)
+            sendTelegram(body: body, photo: photo)
         }
         if barkConfigured {
-            sendBark(title: title, body: body, photo: photo)
+            sendBark(body: body, photo: photo)
         }
     }
 
-    private func sendTelegram(title: String, body: String, photo: Data?) {
-        let token = prefs.string(forKey: Self.telegramBotTokenKey) ?? ""
-        let chatID = prefs.string(forKey: Self.telegramChatIDKey) ?? ""
-        let text = "\(title)\n\(body)"
+    private func sendTelegram(body: String, photo: Data?) {
+        let text = "BLEUnlock\n\(body)"
 
         if let photo {
-            let url = URL(string: "https://api.telegram.org/bot\(token)/sendPhoto")!
+            let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendPhoto")!
             var request = URLRequest(url: url)
             let boundary = "BLEUnlock-\(UUID().uuidString)"
             request.httpMethod = "POST"
@@ -111,7 +183,7 @@ class RemoteNotifier {
             func appendField(_ name: String, _ value: String) {
                 data.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".data(using: .utf8)!)
             }
-            appendField("chat_id", chatID)
+            appendField("chat_id", telegramChatID)
             appendField("caption", text)
             data.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
             data.append(photo)
@@ -119,38 +191,42 @@ class RemoteNotifier {
             request.httpBody = data
             run(request, channel: "telegram")
         } else {
-            var components = URLComponents(string: "https://api.telegram.org/bot\(token)/sendMessage")!
-            components.queryItems = [
-                URLQueryItem(name: "chat_id", value: chatID),
-                URLQueryItem(name: "text", value: text),
-            ]
-            guard let url = components.url else { return }
+            let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendMessage")!
             var request = URLRequest(url: url)
-            request.httpMethod = "GET"
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            let parts = [
+                "chat_id=\(urlEncoded(telegramChatID))",
+                "text=\(urlEncoded(text))",
+            ]
+            request.httpBody = parts.joined(separator: "&").data(using: .utf8)
             run(request, channel: "telegram")
         }
     }
 
-    private func sendBark(title: String, body: String, photo: Data?) {
-        var server = prefs.string(forKey: Self.barkServerKey) ?? ""
+    private func sendBark(body: String, photo: Data?) {
+        var server = barkServer
         if server.isEmpty { server = "https://api.day.app" }
         while server.hasSuffix("/") { server.removeLast() }
-        let deviceKey = prefs.string(forKey: Self.barkDeviceKeyKey) ?? ""
-        guard let url = URL(string: "\(server)/\(deviceKey)") else { return }
+        guard let url = URL(string: "\(server)/\(urlEncoded(barkDeviceKey))") else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        var fields = ["title": title, "body": body, "group": "BLEUnlock"]
+        var fields = ["title": "BLEUnlock", "body": body, "group": "BLEUnlock"]
         // Bark shows the image as an attachment; skip it when the payload gets too large.
-        if let photo, photo.base64EncodedString().count < 2_000_000 {
+        if let photo, photo.base64EncodedString().count < 700_000 {
             fields["image"] = photo.base64EncodedString()
         }
         let parts = fields.map { k, v -> String in
-            "\(k)=\(v.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? v)"
+            "\(k)=\(urlEncoded(v))"
         }
         request.httpBody = parts.joined(separator: "&").data(using: .utf8)
         run(request, channel: "bark")
+    }
+
+    private func urlEncoded(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? s
     }
 
     private func run(_ request: URLRequest, channel: String) {
@@ -164,17 +240,14 @@ class RemoteNotifier {
     }
 }
 
-// Grabs a single JPEG frame from the front camera. Runs its work off the main
-// thread; completion is called with nil on any failure (or a TCC denial).
+// Grabs a single JPEG frame from the front camera. All state transitions happen
+// on the serial PhotoCapture.queue, so double-fires (photo + timeout) and rapid
+// back-to-back captures are coalesced instead of racing.
 @available(macOS 10.15, *)
 class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
     private static let queue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.photo-capture")
-    private var completion: ((Data?) -> Void)?
-    private var output = AVCapturePhotoOutput()
-    private var session = AVCaptureSession()
-
-    // Keep the in-flight capture alive; its only other references are weak.
     private static var current: PhotoCapture?
+    private static var pending: [(Data?) -> Void] = []
 
     static func requestAccess() {
         AVCaptureDevice.requestAccess(for: .video) { granted in
@@ -184,29 +257,46 @@ class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
 
     static func capture(completion: @escaping (Data?) -> Void) {
         queue.async {
+            if Self.current != nil {
+                // A capture is already in flight; piggyback on its result.
+                Self.pending.append(completion)
+                return
+            }
             let capturer = PhotoCapture()
             Self.current = capturer
-            capturer.shoot { data in
-                Self.queue.async { Self.current = nil }
-                completion(data)
-            }
+            Self.pending = [completion]
+            capturer.shoot()
         }
     }
 
-    private func shoot(completion: @escaping (Data?) -> Void) {
-        self.completion = { [weak self] data in
-            self?.finish()
-            DispatchQueue.main.async { completion(data) }
+    private var output = AVCapturePhotoOutput()
+    private var session = AVCaptureSession()
+
+    private func deliver(_ data: Data?) {
+        Self.queue.async {
+            guard Self.current === self else { return }
+            let completions = Self.pending
+            Self.pending = []
+            Self.current = nil
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+                if self.session.isRunning { self.session.stopRunning() }
+                self.session.inputs.forEach { self.session.removeInput($0) }
+            }
+            completions.forEach { $0(data) }
         }
+    }
+
+    private func shoot() {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) ??
                             AVCaptureDevice.default(for: .video) else {
-            self.completion?(nil)
+            deliver(nil)
             return
         }
         guard let input = try? AVCaptureDeviceInput(device: device),
               session.canAddInput(input),
               session.canAddOutput(output) else {
-            self.completion?(nil)
+            deliver(nil)
             return
         }
         session.beginConfiguration()
@@ -217,29 +307,21 @@ class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             self.session.startRunning()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self else { return }
+            Self.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, Self.current === self else { return }
                 let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
                 self.output.capturePhoto(with: settings, delegate: self)
             }
         }
 
         // Overall timeout: never leave the caller hanging (e.g. camera in use / TCC prompt).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.completion?(nil)
-        }
-    }
-
-    private func finish() {
-        completion = nil
-        Self.queue.async { [weak self] in
-            guard let self else { return }
-            if self.session.isRunning { self.session.stopRunning() }
-            self.session.inputs.forEach { self.session.removeInput($0) }
+        Self.queue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self, Self.current === self else { return }
+            self.deliver(nil)
         }
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        completion?(error == nil ? photo.fileDataRepresentation() : nil)
+        deliver(error == nil ? photo.fileDataRepresentation() : nil)
     }
 }

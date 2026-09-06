@@ -72,6 +72,11 @@ class AuthFailureMonitor {
             process = p
         } catch {
             print("AuthFailureMonitor: failed to start log stream: \(error)")
+            restartTimer?.invalidate()
+            restartTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+                self?.restartTimer = nil
+                self?.start()
+            }
         }
     }
 
@@ -102,9 +107,12 @@ class AuthFailureMonitor {
 
     private static func looksLikeAuthFailure(_ line: String) -> Bool {
         let l = line.lowercased()
-        return l.contains("authentication failure")
-            || l.contains("incorrect")
-            || l.contains("apeventtouchidnomatch")
+        if l.contains("authentication failure") || l.contains("apeventtouchidnomatch") {
+            return true
+        }
+        // "incorrect" only counts from the lock-screen UI processes; keep this
+        // in sync with the predicate above.
+        return (l.contains("loginwindow") || l.contains("securityagent")) && l.contains("incorrect")
     }
 }
 
@@ -345,15 +353,13 @@ struct DeviceMenuItemView {
     }
 
     private static let notifyRSSIMenuItemKind = "notifyRSSI"
-    private static let notifyEventMenuItemKind = "notifyEvent"
 
     func refreshNotifyMenu() {
         let minRSSI = prefs.integer(forKey: RemoteNotifier.notifyMinRSSIKey)
         for item in notifyMenu.items {
             if item.representedObject as? String == AppDelegate.notifyRSSIMenuItemKind {
                 item.state = item.tag == minRSSI ? .on : .off
-            } else if item.representedObject as? String == AppDelegate.notifyEventMenuItemKind,
-                      let event = item.toolTip, let key = notifyEventKey(for: event) {
+            } else if let event = item.representedObject as? String, let key = notifyEventKey(for: event) {
                 item.state = prefs.bool(forKey: key) ? .on : .off
             }
         }
@@ -365,7 +371,7 @@ struct DeviceMenuItemView {
     }
 
     @objc func toggleNotifyEvent(_ menuItem: NSMenuItem) {
-        guard let event = menuItem.toolTip, let key = notifyEventKey(for: event) else { return }
+        guard let event = menuItem.representedObject as? String, let key = notifyEventKey(for: event) else { return }
         prefs.set(!prefs.bool(forKey: key), forKey: key)
         refreshNotifyMenu()
     }
@@ -392,18 +398,18 @@ struct DeviceMenuItemView {
         stack.orientation = .vertical
         let tokenField = NSTextField(frame: NSRect(x: 0, y: 36, width: 300, height: 22))
         tokenField.placeholderString = "Bot token (123456:ABC-DEF...)"
-        tokenField.stringValue = prefs.string(forKey: RemoteNotifier.telegramBotTokenKey) ?? ""
+        tokenField.stringValue = remoteNotifier.telegramToken
         let chatField = NSTextField(frame: NSRect(x: 0, y: 8, width: 300, height: 22))
         chatField.placeholderString = "Chat ID"
-        chatField.stringValue = prefs.string(forKey: RemoteNotifier.telegramChatIDKey) ?? ""
+        chatField.stringValue = remoteNotifier.telegramChatID
         stack.addArrangedSubview(tokenField)
         stack.addArrangedSubview(chatField)
         msg.accessoryView = stack
         tokenField.becomeFirstResponder()
         NSApp.activate(ignoringOtherApps: true)
         if msg.runModal() == .alertFirstButtonReturn {
-            prefs.set(tokenField.stringValue.trimmingCharacters(in: .whitespaces), forKey: RemoteNotifier.telegramBotTokenKey)
-            prefs.set(chatField.stringValue.trimmingCharacters(in: .whitespaces), forKey: RemoteNotifier.telegramChatIDKey)
+            RemoteNotifier.setTelegram(token: tokenField.stringValue.trimmingCharacters(in: .whitespaces),
+                                       chatID: chatField.stringValue.trimmingCharacters(in: .whitespaces))
         }
     }
 
@@ -419,18 +425,18 @@ struct DeviceMenuItemView {
         stack.orientation = .vertical
         let serverField = NSTextField(frame: NSRect(x: 0, y: 36, width: 300, height: 22))
         serverField.placeholderString = "https://api.day.app"
-        serverField.stringValue = prefs.string(forKey: RemoteNotifier.barkServerKey) ?? ""
+        serverField.stringValue = remoteNotifier.barkServer
         let keyField = NSTextField(frame: NSRect(x: 0, y: 8, width: 300, height: 22))
         keyField.placeholderString = "Device key"
-        keyField.stringValue = prefs.string(forKey: RemoteNotifier.barkDeviceKeyKey) ?? ""
+        keyField.stringValue = remoteNotifier.barkDeviceKey
         stack.addArrangedSubview(serverField)
         stack.addArrangedSubview(keyField)
         msg.accessoryView = stack
         serverField.becomeFirstResponder()
         NSApp.activate(ignoringOtherApps: true)
         if msg.runModal() == .alertFirstButtonReturn {
-            prefs.set(serverField.stringValue.trimmingCharacters(in: .whitespaces), forKey: RemoteNotifier.barkServerKey)
-            prefs.set(keyField.stringValue.trimmingCharacters(in: .whitespaces), forKey: RemoteNotifier.barkDeviceKeyKey)
+            RemoteNotifier.setBark(server: serverField.stringValue.trimmingCharacters(in: .whitespaces),
+                                   deviceKey: keyField.stringValue.trimmingCharacters(in: .whitespaces))
         }
     }
 
@@ -2555,6 +2561,8 @@ struct DeviceMenuItemView {
         notifyItem.submenu = notifyMenu
         notifyMenu.delegate = self
         notifyMenu.addItem(withTitle: t("notify_min_rssi"), action: nil, keyEquivalent: "")
+        let noteItem = notifyMenu.addItem(withTitle: t("notify_threshold_note"), action: nil, keyEquivalent: "")
+        noteItem.isEnabled = false
         addSettingsItem(notifyMenu, title: t("always_notify"), action: #selector(setNotifyRSSI(_:)), tag: 0, kind: AppDelegate.notifyRSSIMenuItemKind)
         for proximity in stride(from: -30, to: -100, by: -5) {
             addSettingsItem(notifyMenu, title: String(format: "%ddBm", proximity), action: #selector(setNotifyRSSI(_:)), tag: proximity, kind: AppDelegate.notifyRSSIMenuItemKind)
@@ -2563,8 +2571,7 @@ struct DeviceMenuItemView {
         notifyMenu.addItem(withTitle: t("notify_events"), action: nil, keyEquivalent: "")
         for event in notifyEventNames {
             let eventItem = notifyMenu.addItem(withTitle: t("notify_event_" + event), action: #selector(toggleNotifyEvent(_:)), keyEquivalent: "")
-            eventItem.toolTip = event
-            eventItem.representedObject = AppDelegate.notifyEventMenuItemKind
+            eventItem.representedObject = event
         }
         notifyMenu.addItem(NSMenuItem.separator())
         let photoItem = notifyMenu.addItem(withTitle: t("notify_with_photo"), action: #selector(toggleNotifyPhoto(_:)), keyEquivalent: "")
@@ -2825,5 +2832,6 @@ struct DeviceMenuItemView {
     func applicationWillTerminate(_ aNotification: Notification) {
         permissionRecoveryTimer?.invalidate()
         permissionRecoveryTimer = nil
+        authFailureMonitor.stop()
     }
 }

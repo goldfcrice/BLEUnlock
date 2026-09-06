@@ -333,7 +333,7 @@
 				3DD4B666226C1DF200451B7B /* BLE.swift in Sources */,
 				3DD4B664226C1CF000451B7B /* lowlevel.c in Sources */,
 				3DCAAA7D22ADE9830011A2DA /* checkUpdate.swift in Sources */,
-		RN000000000000000000000A /* RemoteNotify.swift in Sources */,
+			RN000000000000000000000A /* RemoteNotify.swift in Sources */,
 				3D95379522784D550017D8B9 /* AboutBox.swift in Sources */,
 				3D6070E226DBC68E00EE4E48 /* LEDeviceInfo.swift in Sources */,
 				3D79FD7D226C335100A373C0 /* appleDeviceNames.swift in Sources */,

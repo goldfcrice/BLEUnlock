@@ -81,3 +81,5 @@
 "bark_settings_info" = "填写 Bark 服务器地址和 Device Key，Key 留空则不启用 Bark。";
 "send_test_notification" = "发送测试通知";
 "notify_no_channel" = "尚未配置通知渠道，请先设置 Telegram 或 Bark。";
+
+"notify_threshold_note" = "仅当 RSSI 不低于该值时通知；away/lost 锁定发生在低 RSSI 时，会被抑制。";
