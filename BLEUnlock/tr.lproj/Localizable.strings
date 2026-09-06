@@ -71,3 +71,5 @@
 "notify_channel_enabled" = "Enabled";
 "channel_config" = "Configure…";
 "wecom_short" = "WeCom";
+\n"notify_test_ok" = "Test notification sent.";
+"notify_test_failed" = "Test notification failed.";

@@ -94,3 +94,5 @@
 "notify_channel_enabled" = "启用";
 "channel_config" = "配置…";
 "wecom_short" = "企业微信";
+\n"notify_test_ok" = "测试通知已发送。";
+"notify_test_failed" = "测试通知发送失败。";

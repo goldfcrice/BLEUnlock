@@ -122,16 +122,16 @@ class RemoteNotifier {
             .appendingPathComponent("Pictures/BLEUnlock", isDirectory: true)
     }
 
-    func savePhotoLocally(_ photo: Data, event: String, rssi: Int?) {
+    // Expects the already-annotated JPEG; annotation is centralized in send().
+    func savePhotoLocally(_ photo: Data, event: String) {
         guard prefs.bool(forKey: Self.savePhotoLocallyKey) else { return }
-        guard let annotated = Self.annotatedJPEG(photo, event: event, rssi: rssi) else { return }
         let dir = Self.photoDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let df = DateFormatter()
         df.dateFormat = "yyyyMMdd-HHmmss-SSS"
         let name = "\(df.string(from: Date()))-\(event).jpg"
         do {
-            try annotated.write(to: dir.appendingPathComponent(name))
+            try photo.write(to: dir.appendingPathComponent(name))
         } catch {
             print("RemoteNotifier: failed to save photo locally: \(error.localizedDescription)")
         }
@@ -142,39 +142,38 @@ class RemoteNotifier {
     func handle(event: String, rssi: Int?) {
         guard let key = notifyEventKey(for: event), prefs.bool(forKey: key) else { return }
         if let rssi, !passesRSSIThreshold(rssi) { return }
-
-        let body = composeBody(event: event, rssi: rssi)
         guard hasChannel else { return }
-
-        let send = { (photo: Data?) in
-            self.send(event: event, body: body, rssi: rssi, photo: photo)
-        }
-        if prefs.bool(forKey: Self.notifyWithPhotoKey) {
-            if #available(macOS 10.15, *) {
-                PhotoCapture.capture { photo in
-                    send(photo)
-                }
-            } else {
-                send(nil)
-            }
-        } else {
-            send(nil)
-        }
+        notify(event: event, rssi: rssi)
     }
 
     func sendTest() {
-        let body = composeBody(event: "test", rssi: nil)
         guard hasChannel else { return }
-        if prefs.bool(forKey: Self.notifyWithPhotoKey) {
-            if #available(macOS 10.15, *) {
-                PhotoCapture.capture { photo in
-                    self.send(event: "test", body: body, rssi: nil, photo: photo)
-                }
-            } else {
-                send(event: "test", body: body, rssi: nil, photo: nil)
+        notify(event: "test", rssi: nil) { results in
+            DispatchQueue.main.async {
+                let lines = results.map { (channel, ok) -> String in
+                    let name = channel == "wecom" ? "WeCom" : channel.capitalized
+                    return (ok ? "✓ " : "✗ ") + name
+                }.sorted().joined(separator: "\n")
+                let allOk = !results.isEmpty && results.values.allSatisfy { $0 }
+                let msg = NSAlert()
+                msg.messageText = allOk ? t("notify_test_ok") : t("notify_test_failed")
+                msg.informativeText = lines
+                msg.window.title = "BLEUnlock"
+                NSApp.activate(ignoringOtherApps: true)
+                msg.runModal()
             }
+        }
+    }
+
+    private func notify(event: String, rssi: Int?, report: (([String: Bool]) -> Void)? = nil) {
+        let body = composeBody(event: event, rssi: rssi)
+        let go = { (photo: Data?) in
+            self.send(event: event, body: body, rssi: rssi, photo: photo, report: report)
+        }
+        if prefs.bool(forKey: Self.notifyWithPhotoKey), #available(macOS 10.15, *) {
+            PhotoCapture.capture(completion: go)
         } else {
-            send(event: "test", body: body, rssi: nil, photo: nil)
+            go(nil)
         }
     }
 
@@ -194,41 +193,65 @@ class RemoteNotifier {
 
     // MARK: - Sending
 
-    private func send(event: String, body: String, rssi: Int?, photo: Data?) {
-        // Drawing happens via NSImage focus; keep it on the main thread.
-        DispatchQueue.main.async {
+    // Image decode/draw/encode is heavy; keep it off the main thread so event
+    // timers and menu tracking never stall while a notification is prepared.
+    private static let imageQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.notify-images", qos: .userInitiated)
+
+    private func send(event: String, body: String, rssi: Int?, photo: Data?, report: (([String: Bool]) -> Void)? = nil) {
+        Self.imageQueue.async {
+            var annotatedFull: Data?
+            var annotatedWecom: Data?
             if let photo {
-                self.savePhotoLocally(photo, event: event, rssi: rssi)
+                // One caption burn at full resolution, reused for both the
+                // local copy and Telegram.
+                annotatedFull = Self.annotatedJPEG(photo, event: event, rssi: rssi)
+                annotatedWecom = Self.downscaledJPEG(photo, maxPixel: 1280)
+                    .flatMap { Self.annotatedJPEG($0, event: event, rssi: rssi) }
+                self.savePhotoLocally(annotatedFull ?? photo, event: event)
             }
+
+            var attempted: [String: Bool] = [:]
+            var pending = 0
+            func finish(channel: String, ok: Bool) {
+                attempted[channel] = ok
+                if attempted.count == pending, pending > 0, let report {
+                    report(attempted)
+                }
+            }
+
             if self.telegramConfigured && self.channelEnabled("telegram") {
-                let image = photo.flatMap { Self.annotatedJPEG($0, event: event, rssi: rssi) }
-                self.sendTelegram(body: body, photo: image)
+                pending += 1
+                self.sendTelegram(body: body, photo: annotatedFull) { finish(channel: "telegram", ok: $0) }
             }
             if self.barkConfigured && self.channelEnabled("bark") {
-                self.sendBark(body: body)
+                pending += 1
+                self.sendBark(body: body) { finish(channel: "bark", ok: $0) }
             }
             if self.wecomConfigured && self.channelEnabled("wecom") {
-                let image = photo
-                    .flatMap { Self.downscaledJPEG($0, maxPixel: 1280) }
-                    .flatMap { Self.annotatedJPEG($0, event: event, rssi: rssi) }
-                self.sendWecom(body: body, photo: image)
+                pending += 1
+                self.sendWecom(body: body, photo: annotatedWecom) { finish(channel: "wecom", ok: $0) }
+            }
+            if pending == 0, let report {
+                report([:])
             }
         }
     }
 
     // Burns a caption bar (timestamp | event | RSSI) into the photo before it
-    // is sent or saved locally.
+    // is sent or saved locally. Pixel-exact and safe off the main thread.
     private static func annotatedJPEG(_ data: Data, event: String, rssi: Int?) -> Data? {
-        guard let image = NSImage(data: data) else { return nil }
-        let size = image.size
-        guard size.width > 0, size.height > 0 else { return nil }
+        guard let src = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        let width = cg.width
+        let height = cg.height
+        guard width > 0, height > 0 else { return nil }
 
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd HH:mm:ss"
         var text = "\(df.string(from: Date()))   \(event)"
         if let rssi { text += "   RSSI \(rssi)dBm" }
 
-        let fontSize = max(12, min(size.width, size.height) / 22)
+        let fontSize = max(12, CGFloat(min(width, height)) / 22)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
             .foregroundColor: NSColor.white,
@@ -237,20 +260,23 @@ class RemoteNotifier {
         let textSize = str.size()
         let barHeight = textSize.height + fontSize * 0.8
 
-        let canvas = NSImage(size: size)
-        canvas.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: size))
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .calibratedRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        rep.size = NSSize(width: width, height: height)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSImage(cgImage: cg, size: NSSize(width: width, height: height))
+            .draw(in: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
         NSColor.black.withAlphaComponent(0.55).setFill()
-        NSRect(x: 0, y: 0, width: size.width, height: barHeight).fill()
+        NSRect(x: 0, y: 0, width: CGFloat(width), height: barHeight).fill()
         str.draw(at: NSPoint(x: fontSize * 0.5, y: (barHeight - textSize.height) / 2))
-        canvas.unlockFocus()
+        NSGraphicsContext.restoreGraphicsState()
 
-        guard let tiff = canvas.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
     }
 
-    private func sendTelegram(body: String, photo: Data?) {
+    private func sendTelegram(body: String, photo: Data?, completion: ((Bool) -> Void)? = nil) {
         let text = "BLEUnlock\n\(body)"
 
         if let photo {
@@ -269,7 +295,7 @@ class RemoteNotifier {
             data.append(photo)
             data.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
             request.httpBody = data
-            run(request, channel: "telegram")
+            run(request, channel: "telegram", completion: completion)
         } else {
             guard let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendMessage") else { return }
             var request = URLRequest(url: url)
@@ -280,13 +306,13 @@ class RemoteNotifier {
                 "text=\(urlEncoded(text))",
             ]
             request.httpBody = parts.joined(separator: "&").data(using: .utf8)
-            run(request, channel: "telegram")
+            run(request, channel: "telegram", completion: completion)
         }
     }
 
     // Bark's iOS client only renders `image` as a remote URL (no base64), so
     // this channel is text-only by design.
-    private func sendBark(body: String) {
+    private func sendBark(body: String, completion: ((Bool) -> Void)? = nil) {
         var server = barkServer
         if server.isEmpty { server = "https://api.day.app" }
         while server.hasSuffix("/") { server.removeLast() }
@@ -300,22 +326,28 @@ class RemoteNotifier {
             "\(k)=\(urlEncoded(v))"
         }
         request.httpBody = parts.joined(separator: "&").data(using: .utf8)
-        run(request, channel: "bark")
+        run(request, channel: "bark", completion: completion)
     }
 
     // WeCom group bot webhook: text by default, image message only when a
     // photo was captured (image limit is 2MB before base64).
-    private func sendWecom(body: String, photo: Data?) {
+    private func sendWecom(body: String, photo: Data?, completion: ((Bool) -> Void)? = nil) {
         let base = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=\(wecomKey)"
         guard let url = URL(string: base) else { return }
 
+        var anyFailed = false
+        var remaining = 1 + (photo != nil ? 1 : 0)
         func post(_ json: [String: Any]) {
             guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = data
-            run(request, channel: "wecom")
+            run(request, channel: "wecom") { ok in
+                if !ok { anyFailed = true }
+                remaining -= 1
+                if remaining == 0 { completion?(!anyFailed) }
+            }
         }
 
         post(["msgtype": "text", "text": ["content": "BLEUnlock\n\(body)"]])
@@ -352,13 +384,17 @@ class RemoteNotifier {
         s.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? s
     }
 
-    private func run(_ request: URLRequest, channel: String) {
+    private func run(_ request: URLRequest, channel: String, completion: ((Bool) -> Void)? = nil) {
         session.dataTask(with: request) { _, response, error in
+            var ok = true
             if let error {
                 print("RemoteNotifier[\(channel)]: \(error.localizedDescription)")
+                ok = false
             } else if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 print("RemoteNotifier[\(channel)]: HTTP \(http.statusCode)")
+                ok = false
             }
+            completion?(ok)
         }.resume()
     }
 }

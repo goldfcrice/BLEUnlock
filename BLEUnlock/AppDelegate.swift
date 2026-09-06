@@ -37,8 +37,9 @@ class AuthFailureMonitor {
     private var lineBuffer = ""
     var onAuthFailure: (() -> Void)?
 
+    // Keep in sync with looksLikeAuthFailure below.
     private static let predicate =
-        "(process == \"loginwindow\" OR process == \"SecurityAgent\" OR process == \"ScreenSaverEngine\") AND " +
+        "(process == \"loginwindow\" OR process == \"SecurityAgent\") AND " +
         "(eventMessage CONTAINS[c] \"Authentication failure\" OR " +
         "eventMessage CONTAINS[c] \"INCORRECT\" OR " +
         "eventMessage CONTAINS[c] \"APEventTouchIDNoMatch\")"
@@ -47,7 +48,7 @@ class AuthFailureMonitor {
         guard process == nil else { return }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/log")
-        p.arguments = ["stream", "--style", "compact", "--predicate", Self.predicate]
+        p.arguments = ["stream", "--style", "json", "--predicate", Self.predicate]
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = Pipe() // silence log(1) chatter
@@ -97,7 +98,12 @@ class AuthFailureMonitor {
         lineBuffer += chunk
         var lines = lineBuffer.components(separatedBy: "\n")
         lineBuffer = lines.removeLast()
-        for line in lines where Self.looksLikeAuthFailure(line) {
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let process = json["process"] as? String,
+                  let message = json["eventMessage"] as? String else { continue }
+            guard Self.looksLikeAuthFailure(process: process, message: message) else { continue }
             let now = Date().timeIntervalSince1970
             guard now >= lastEventAt + 2 else { continue } // one wrong attempt can log several entries
             lastEventAt = now
@@ -105,14 +111,14 @@ class AuthFailureMonitor {
         }
     }
 
-    private static func looksLikeAuthFailure(_ line: String) -> Bool {
-        let l = line.lowercased()
-        if l.contains("authentication failure") || l.contains("apeventtouchidnomatch") {
+    private static func looksLikeAuthFailure(process: String, message: String) -> Bool {
+        let m = message.lowercased()
+        if m.contains("authentication failure") || m.contains("apeventtouchidnomatch") {
             return true
         }
         // "incorrect" only counts from the lock-screen UI processes; keep this
         // in sync with the predicate above.
-        return (l.contains("loginwindow") || l.contains("securityagent")) && l.contains("incorrect")
+        return (process == "loginwindow" || process == "SecurityAgent") && m.contains("incorrect")
     }
 }
 
