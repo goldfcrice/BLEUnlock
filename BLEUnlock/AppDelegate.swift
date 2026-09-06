@@ -374,6 +374,16 @@ struct DeviceMenuItemView {
         refreshNotifyMenu()
     }
 
+    // The log-stream subprocess only needs to run while someone listens to
+    // the authFailed event.
+    func syncAuthFailureMonitor() {
+        if prefs.bool(forKey: notifyEventKey(for: "authFailed") ?? "") {
+            authFailureMonitor.start()
+        } else {
+            authFailureMonitor.stop()
+        }
+    }
+
     @objc func toggleNotifyChannel(_ menuItem: NSMenuItem) {
         guard let channel = menuItem.representedObject as? String else { return }
         let value = !remoteNotifier.channelEnabled(channel)
@@ -385,6 +395,9 @@ struct DeviceMenuItemView {
     @objc func toggleNotifyEvent(_ menuItem: NSMenuItem) {
         guard let event = menuItem.representedObject as? String, let key = notifyEventKey(for: event) else { return }
         prefs.set(!prefs.bool(forKey: key), forKey: key)
+        if event == "authFailed" {
+            syncAuthFailureMonitor()
+        }
         refreshNotifyMenu()
     }
 
@@ -2862,7 +2875,7 @@ struct DeviceMenuItemView {
             guard self.isScreenLocked() || self.inScreensaver else { return }
             self.runScript("authFailed")
         }
-        authFailureMonitor.start()
+        syncAuthFailureMonitor()
 
         if ble.unlockRSSI != ble.UNLOCK_DISABLED && !prefs.bool(forKey: "wakeWithoutUnlocking") && fetchPassword() == nil {
             askPassword()
@@ -2905,7 +2918,8 @@ struct DeviceMenuItemView {
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenuItem.submenu = editMenu
-        NSApp.mainMenu?.insertItem(editMenuItem, at: 0)
+        let index = (NSApp.mainMenu?.items.isEmpty == false) ? 1 : 0
+        NSApp.mainMenu?.insertItem(editMenuItem, at: index)
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {

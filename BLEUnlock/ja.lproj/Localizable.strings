@@ -67,7 +67,7 @@
 "bark_settings" = "Bark Settings…";
 "bark_settings_info" = "Enter your Bark server URL and device key. Leave the key empty to disable Bark.";
 "send_test_notification" = "Send Test Notification";
-"notify_no_channel" = "No notification channel configured. Set up Telegram or Bark first.";
+"notify_no_channel" = "No notification channel configured. Set up Telegram, Bark or WeCom first.";
 
 "notify_threshold_note" = "Only notify when RSSI is at or above the value; away/lost locks happen at low RSSI and will be suppressed.";
 

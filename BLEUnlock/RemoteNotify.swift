@@ -128,7 +128,7 @@ class RemoteNotifier {
         let dir = Self.photoDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let df = DateFormatter()
-        df.dateFormat = "yyyyMMdd-HHmmss"
+        df.dateFormat = "yyyyMMdd-HHmmss-SSS"
         let name = "\(df.string(from: Date()))-\(event).jpg"
         do {
             try annotated.write(to: dir.appendingPathComponent(name))
@@ -254,7 +254,7 @@ class RemoteNotifier {
         let text = "BLEUnlock\n\(body)"
 
         if let photo {
-            let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendPhoto")!
+            guard let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendPhoto") else { return }
             var request = URLRequest(url: url)
             let boundary = "BLEUnlock-\(UUID().uuidString)"
             request.httpMethod = "POST"
@@ -271,7 +271,7 @@ class RemoteNotifier {
             request.httpBody = data
             run(request, channel: "telegram")
         } else {
-            let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendMessage")!
+            guard let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendMessage") else { return }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -319,10 +319,10 @@ class RemoteNotifier {
         }
 
         post(["msgtype": "text", "text": ["content": "BLEUnlock\n\(body)"]])
-        if let photo, let small = Self.downscaledJPEG(photo, maxPixel: 1280) {
+        if let photo {
             post(["msgtype": "image", "image": [
-                "base64": small.base64EncodedString(),
-                "md5": Self.md5Hex(small),
+                "base64": photo.base64EncodedString(),
+                "md5": Self.md5Hex(photo),
             ]])
         }
     }
