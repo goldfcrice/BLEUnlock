@@ -146,7 +146,7 @@ class RemoteNotifier {
         guard hasChannel else { return }
 
         let send = { (photo: Data?) in
-            self.send(event: event, body: body, photo: photo)
+            self.send(event: event, body: body, rssi: rssi, photo: photo)
         }
         if prefs.bool(forKey: Self.notifyWithPhotoKey) {
             if #available(macOS 10.15, *) {
@@ -167,13 +167,13 @@ class RemoteNotifier {
         if prefs.bool(forKey: Self.notifyWithPhotoKey) {
             if #available(macOS 10.15, *) {
                 PhotoCapture.capture { photo in
-                    self.send(event: "test", body: body, photo: photo)
+                    self.send(event: "test", body: body, rssi: nil, photo: photo)
                 }
             } else {
-                send(event: "test", body: body, photo: nil)
+                send(event: "test", body: body, rssi: nil, photo: nil)
             }
         } else {
-            send(event: "test", body: body, photo: nil)
+            send(event: "test", body: body, rssi: nil, photo: nil)
         }
     }
 
@@ -193,19 +193,60 @@ class RemoteNotifier {
 
     // MARK: - Sending
 
-    private func send(event: String, body: String, photo: Data?) {
-        if let photo {
-            savePhotoLocally(photo, event: event)
+    private func send(event: String, body: String, rssi: Int?, photo: Data?) {
+        // Drawing happens via NSImage focus; keep it on the main thread.
+        DispatchQueue.main.async {
+            if let photo {
+                self.savePhotoLocally(photo, event: event)
+            }
+            if self.telegramConfigured && self.channelEnabled("telegram") {
+                let image = photo.flatMap { Self.annotatedJPEG($0, event: event, rssi: rssi) }
+                self.sendTelegram(body: body, photo: image)
+            }
+            if self.barkConfigured && self.channelEnabled("bark") {
+                self.sendBark(body: body)
+            }
+            if self.wecomConfigured && self.channelEnabled("wecom") {
+                let image = photo
+                    .flatMap { Self.downscaledJPEG($0, maxPixel: 1280) }
+                    .flatMap { Self.annotatedJPEG($0, event: event, rssi: rssi) }
+                self.sendWecom(body: body, photo: image)
+            }
         }
-        if telegramConfigured && channelEnabled("telegram") {
-            sendTelegram(body: body, photo: photo)
-        }
-        if barkConfigured && channelEnabled("bark") {
-            sendBark(body: body)
-        }
-        if wecomConfigured && channelEnabled("wecom") {
-            sendWecom(body: body, photo: photo)
-        }
+    }
+
+    // Burns a caption bar (timestamp | event | RSSI) into the photo before it
+    // is sent. The locally saved copy keeps the untouched original.
+    private static func annotatedJPEG(_ data: Data, event: String, rssi: Int?) -> Data? {
+        guard let image = NSImage(data: data) else { return nil }
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        var text = "\(df.string(from: Date()))   \(event)"
+        if let rssi { text += "   RSSI \(rssi)dBm" }
+
+        let fontSize = max(12, min(size.width, size.height) / 22)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: NSColor.white,
+        ]
+        let str = NSAttributedString(string: text, attributes: attrs)
+        let textSize = str.size()
+        let barHeight = textSize.height + fontSize * 0.8
+
+        let canvas = NSImage(size: size)
+        canvas.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: size))
+        NSColor.black.withAlphaComponent(0.55).setFill()
+        NSRect(x: 0, y: 0, width: size.width, height: barHeight).fill()
+        str.draw(at: NSPoint(x: fontSize * 0.5, y: (barHeight - textSize.height) / 2))
+        canvas.unlockFocus()
+
+        guard let tiff = canvas.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85])
     }
 
     private func sendTelegram(body: String, photo: Data?) {
