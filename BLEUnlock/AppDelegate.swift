@@ -57,7 +57,9 @@ class AuthFailureMonitor {
         guard process == nil else { return }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/log")
-        p.arguments = ["stream", "--style", "json", "--predicate", Self.predicate]
+        // ndjson = one JSON object per line; "json" pretty-prints a multi-line
+        // array that a line-based parser cannot consume.
+        p.arguments = ["stream", "--style", "ndjson", "--predicate", Self.predicate]
         let pipe = Pipe()
         p.standardOutput = pipe
         // Never hand a child an unread pipe for stderr: once its 64KB buffer
@@ -125,7 +127,7 @@ class AuthFailureMonitor {
             let now = Date().timeIntervalSince1970
             guard now >= lastEventAt + 2 else { continue } // one wrong attempt can log several entries
             lastEventAt = now
-            os_log("auth-failure matched from %{public}@, dispatching callback", log: appLog, type: .info, process)
+            os_log("auth-failure matched from %{public}@, dispatching callback", log: appLog, type: .default, process)
             onAuthFailure?()
         }
     }
@@ -2902,7 +2904,7 @@ struct DeviceMenuItemView {
             // Only report failures against the lock screen / screensaver, not
             // unrelated auth failures (sudo, Mail, etc.) that share the log text.
             let locked = self.isScreenLocked()
-            os_log("auth-failure callback: locked=%{public}d screensaver=%{public}d", log: appLog, type: .info, locked, self.inScreensaver)
+            os_log("auth-failure callback: locked=%{public}d screensaver=%{public}d", log: appLog, type: .default, locked, self.inScreensaver)
             guard locked || self.inScreensaver else { return }
             self.runScript("authFailed")
         }
