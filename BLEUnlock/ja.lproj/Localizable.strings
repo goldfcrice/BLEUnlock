@@ -77,3 +77,7 @@
 "wecom_settings_info" = "Enter the group bot webhook key (the part after key= in the webhook URL). Leave empty to disable WeCom.";
 
 "notify_channels" = "Notification Channels";
+
+"notify_channel_enabled" = "Enabled";
+"channel_config" = "Configure…";
+"wecom_short" = "WeCom";

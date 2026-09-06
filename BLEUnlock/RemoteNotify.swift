@@ -80,8 +80,29 @@ class RemoteNotifier {
         UserDefaults.standard.set(key, forKey: "wecomKey")
     }
 
+    static let channelEnableKeyPrefix = "notifyChannel_"
+
+    func channelEnabled(_ channel: String) -> Bool {
+        prefs.bool(forKey: Self.channelEnableKeyPrefix + channel)
+    }
+
+    func isChannelConfigured(_ channel: String) -> Bool {
+        switch channel {
+        case "telegram": return telegramConfigured
+        case "bark": return barkConfigured
+        case "wecom": return wecomConfigured
+        default: return false
+        }
+    }
+
+    static func setChannelEnabled(_ channel: String, _ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: channelEnableKeyPrefix + channel)
+    }
+
     var hasChannel: Bool {
-        telegramConfigured || barkConfigured || wecomConfigured
+        (telegramConfigured && channelEnabled("telegram"))
+            || (barkConfigured && channelEnabled("bark"))
+            || (wecomConfigured && channelEnabled("wecom"))
     }
 
     var telegramConfigured: Bool {
@@ -176,13 +197,13 @@ class RemoteNotifier {
         if let photo {
             savePhotoLocally(photo, event: event)
         }
-        if telegramConfigured {
+        if telegramConfigured && channelEnabled("telegram") {
             sendTelegram(body: body, photo: photo)
         }
-        if barkConfigured {
+        if barkConfigured && channelEnabled("bark") {
             sendBark(body: body)
         }
-        if wecomConfigured {
+        if wecomConfigured && channelEnabled("wecom") {
             sendWecom(body: body, photo: photo)
         }
     }

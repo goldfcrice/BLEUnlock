@@ -361,12 +361,24 @@ struct DeviceMenuItemView {
                 item.state = item.tag == minRSSI ? .on : .off
             } else if let event = item.representedObject as? String, let key = notifyEventKey(for: event) {
                 item.state = prefs.bool(forKey: key) ? .on : .off
+            } else if item.representedObject as? String == "notifyChannel",
+                      let channel = item.submenu?.items.first?.representedObject as? String {
+                let enabled = remoteNotifier.channelEnabled(channel) && remoteNotifier.isChannelConfigured(channel)
+                item.state = enabled ? .on : .off
             }
         }
     }
 
     @objc func setNotifyRSSI(_ menuItem: NSMenuItem) {
         prefs.set(menuItem.tag, forKey: RemoteNotifier.notifyMinRSSIKey)
+        refreshNotifyMenu()
+    }
+
+    @objc func toggleNotifyChannel(_ menuItem: NSMenuItem) {
+        guard let channel = menuItem.representedObject as? String else { return }
+        let value = !remoteNotifier.channelEnabled(channel)
+        RemoteNotifier.setChannelEnabled(channel, value)
+        menuItem.state = value ? .on : .off
         refreshNotifyMenu()
     }
 
@@ -2614,9 +2626,19 @@ struct DeviceMenuItemView {
         notifyMenu.addItem(withTitle: t("open_photo_folder"), action: #selector(openPhotoFolder), keyEquivalent: "")
         notifyMenu.addItem(NSMenuItem.separator())
         notifyMenu.addItem(withTitle: t("notify_channels"), action: nil, keyEquivalent: "")
-        notifyMenu.addItem(withTitle: t("telegram_settings"), action: #selector(setupTelegram), keyEquivalent: "")
-        notifyMenu.addItem(withTitle: t("bark_settings"), action: #selector(setupBark), keyEquivalent: "")
-        notifyMenu.addItem(withTitle: t("wecom_settings"), action: #selector(setupWecom), keyEquivalent: "")
+        for (channel, title, configAction) in [
+            ("telegram", "Telegram", #selector(setupTelegram)),
+            ("bark", "Bark", #selector(setupBark)),
+            ("wecom", t("wecom_short"), #selector(setupWecom)),
+        ] {
+            let channelItem = notifyMenu.addItem(withTitle: title, action: nil, keyEquivalent: "")
+            channelItem.representedObject = "notifyChannel"
+            let sub = NSMenu()
+            let enableItem = sub.addItem(withTitle: t("notify_channel_enabled"), action: #selector(toggleNotifyChannel(_:)), keyEquivalent: "")
+            enableItem.representedObject = channel
+            sub.addItem(withTitle: t("channel_config"), action: configAction, keyEquivalent: "")
+            channelItem.submenu = sub
+        }
         notifyMenu.addItem(withTitle: t("send_test_notification"), action: #selector(sendTestNotification), keyEquivalent: "")
         refreshNotifyMenu()
 
