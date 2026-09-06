@@ -113,7 +113,10 @@ class AuthFailureMonitor {
         for line in lines {
             guard let data = line.data(using: .utf8),
                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  let process = json["process"] as? String,
+                  // log(1) json output has no "process" key; the executable
+                  // arrives as "processImagePath" (full path).
+                  let process = (json["process"] as? String)
+                      ?? (json["processImagePath"] as? String).map { ($0 as NSString).lastPathComponent },
                   let message = json["eventMessage"] as? String else { continue }
             guard Self.looksLikeAuthFailure(process: process, message: message) else { continue }
             let now = Date().timeIntervalSince1970
