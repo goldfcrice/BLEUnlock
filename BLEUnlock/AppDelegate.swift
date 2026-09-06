@@ -413,6 +413,37 @@ struct DeviceMenuItemView {
         }
     }
 
+    @objc func toggleNotifySavePhoto(_ menuItem: NSMenuItem) {
+        let value = !prefs.bool(forKey: RemoteNotifier.savePhotoLocallyKey)
+        menuItem.state = value ? .on : .off
+        prefs.set(value, forKey: RemoteNotifier.savePhotoLocallyKey)
+    }
+
+    @objc func openPhotoFolder() {
+        let dir = RemoteNotifier.photoDirectory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(dir)
+    }
+
+    @objc func setupWecom() {
+        let msg = NSAlert()
+        msg.addButton(withTitle: t("ok"))
+        msg.addButton(withTitle: t("cancel"))
+        msg.messageText = t("wecom_settings")
+        msg.informativeText = t("wecom_settings_info")
+        msg.window.title = "BLEUnlock"
+
+        let keyField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 22))
+        keyField.placeholderString = "Webhook key (693axxx-...)"
+        keyField.stringValue = remoteNotifier.wecomKey
+        msg.accessoryView = keyField
+        keyField.becomeFirstResponder()
+        NSApp.activate(ignoringOtherApps: true)
+        if msg.runModal() == .alertFirstButtonReturn {
+            RemoteNotifier.setWecom(key: keyField.stringValue.trimmingCharacters(in: .whitespaces))
+        }
+    }
+
     @objc func setupBark() {
         let msg = NSAlert()
         msg.addButton(withTitle: t("ok"))
@@ -2576,8 +2607,12 @@ struct DeviceMenuItemView {
         notifyMenu.addItem(NSMenuItem.separator())
         let photoItem = notifyMenu.addItem(withTitle: t("notify_with_photo"), action: #selector(toggleNotifyPhoto(_:)), keyEquivalent: "")
         photoItem.state = prefs.bool(forKey: RemoteNotifier.notifyWithPhotoKey) ? .on : .off
+        let savePhotoItem = notifyMenu.addItem(withTitle: t("save_photo_locally"), action: #selector(toggleNotifySavePhoto(_:)), keyEquivalent: "")
+        savePhotoItem.state = prefs.bool(forKey: RemoteNotifier.savePhotoLocallyKey) ? .on : .off
+        notifyMenu.addItem(withTitle: t("open_photo_folder"), action: #selector(openPhotoFolder), keyEquivalent: "")
         notifyMenu.addItem(withTitle: t("telegram_settings"), action: #selector(setupTelegram), keyEquivalent: "")
         notifyMenu.addItem(withTitle: t("bark_settings"), action: #selector(setupBark), keyEquivalent: "")
+        notifyMenu.addItem(withTitle: t("wecom_settings"), action: #selector(setupWecom), keyEquivalent: "")
         notifyMenu.addItem(withTitle: t("send_test_notification"), action: #selector(sendTestNotification), keyEquivalent: "")
         refreshNotifyMenu()
 

@@ -2,6 +2,7 @@ import Cocoa
 import AVFoundation
 import ImageIO
 import Security
+import CommonCrypto
 
 let notifyEventNames = ["authFailed", "intruded", "away", "lost", "unlocked"]
 
@@ -55,11 +56,13 @@ enum CredentialStore {
 class RemoteNotifier {
     static let notifyMinRSSIKey = "notifyMinRSSI"
     static let notifyWithPhotoKey = "notifyWithPhoto"
+    static let savePhotoLocallyKey = "notifySavePhotoLocally"
 
     private static let telegramTokenAccount = "telegramToken"
     private static let telegramChatIDAccount = "telegramChatID"
     private static let barkServerAccount = "barkServer"
     private static let barkDeviceKeyAccount = "barkDeviceKey"
+    private static let wecomKeyAccount = "wecomWebhookKey"
     private static let legacyDefaultsAccounts = [
         "telegramBotToken": telegramTokenAccount,
         "telegramChatID": telegramChatIDAccount,
@@ -82,6 +85,7 @@ class RemoteNotifier {
     var telegramChatID: String { CredentialStore.get(Self.telegramChatIDAccount) ?? "" }
     var barkServer: String { CredentialStore.get(Self.barkServerAccount) ?? "" }
     var barkDeviceKey: String { CredentialStore.get(Self.barkDeviceKeyAccount) ?? "" }
+    var wecomKey: String { CredentialStore.get(Self.wecomKeyAccount) ?? "" }
 
     static func setTelegram(token: String, chatID: String) {
         CredentialStore.set(token, account: telegramTokenAccount)
@@ -93,8 +97,12 @@ class RemoteNotifier {
         CredentialStore.set(deviceKey, account: barkDeviceKeyAccount)
     }
 
+    static func setWecom(key: String) {
+        CredentialStore.set(key, account: wecomKeyAccount)
+    }
+
     var hasChannel: Bool {
-        telegramConfigured || barkConfigured
+        telegramConfigured || barkConfigured || wecomConfigured
     }
 
     var telegramConfigured: Bool {
@@ -103,6 +111,29 @@ class RemoteNotifier {
 
     var barkConfigured: Bool {
         !barkDeviceKey.isEmpty
+    }
+
+    var wecomConfigured: Bool {
+        !wecomKey.isEmpty
+    }
+
+    static var photoDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Pictures/BLEUnlock", isDirectory: true)
+    }
+
+    func savePhotoLocally(_ photo: Data, event: String) {
+        guard prefs.bool(forKey: Self.savePhotoLocallyKey) else { return }
+        let dir = Self.photoDirectory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let df = DateFormatter()
+        df.dateFormat = "yyyyMMdd-HHmmss"
+        let name = "\(df.string(from: Date()))-\(event).jpg"
+        do {
+            try photo.write(to: dir.appendingPathComponent(name))
+        } catch {
+            print("RemoteNotifier: failed to save photo locally: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Dispatch
@@ -115,7 +146,7 @@ class RemoteNotifier {
         guard hasChannel else { return }
 
         let send = { (photo: Data?) in
-            self.send(body: body, photo: photo)
+            self.send(event: event, body: body, photo: photo)
         }
         if prefs.bool(forKey: Self.notifyWithPhotoKey) {
             if #available(macOS 10.15, *) {
@@ -136,13 +167,13 @@ class RemoteNotifier {
         if prefs.bool(forKey: Self.notifyWithPhotoKey) {
             if #available(macOS 10.15, *) {
                 PhotoCapture.capture { photo in
-                    self.send(body: body, photo: photo)
+                    self.send(event: "test", body: body, photo: photo)
                 }
             } else {
-                send(body: body, photo: nil)
+                send(event: "test", body: body, photo: nil)
             }
         } else {
-            send(body: body, photo: nil)
+            send(event: "test", body: body, photo: nil)
         }
     }
 
@@ -162,12 +193,18 @@ class RemoteNotifier {
 
     // MARK: - Sending
 
-    private func send(body: String, photo: Data?) {
+    private func send(event: String, body: String, photo: Data?) {
+        if let photo {
+            savePhotoLocally(photo, event: event)
+        }
         if telegramConfigured {
             sendTelegram(body: body, photo: photo)
         }
         if barkConfigured {
-            sendBark(body: body, photo: photo)
+            sendBark(body: body)
+        }
+        if wecomConfigured {
+            sendWecom(body: body, photo: photo)
         }
     }
 
@@ -205,7 +242,9 @@ class RemoteNotifier {
         }
     }
 
-    private func sendBark(body: String, photo: Data?) {
+    // Bark's iOS client only renders `image` as a remote URL (no base64), so
+    // this channel is text-only by design.
+    private func sendBark(body: String) {
         var server = barkServer
         if server.isEmpty { server = "https://api.day.app" }
         while server.hasSuffix("/") { server.removeLast() }
@@ -214,17 +253,44 @@ class RemoteNotifier {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        var fields = ["title": "BLEUnlock", "body": body, "group": "BLEUnlock"]
-        // Bark shows the image as an attachment, but its servers reject large
-        // bodies (HTTP 413) — downscale aggressively and skip on overflow.
-        if let photo, let small = Self.downscaledJPEG(photo), small.base64EncodedString().count < 200_000 {
-            fields["image"] = small.base64EncodedString()
-        }
+        let fields = ["title": "BLEUnlock", "body": body, "group": "BLEUnlock"]
         let parts = fields.map { k, v -> String in
             "\(k)=\(urlEncoded(v))"
         }
         request.httpBody = parts.joined(separator: "&").data(using: .utf8)
         run(request, channel: "bark")
+    }
+
+    // WeCom group bot webhook: text by default, image message only when a
+    // photo was captured (image limit is 2MB before base64).
+    private func sendWecom(body: String, photo: Data?) {
+        let base = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=\(wecomKey)"
+        guard let url = URL(string: base) else { return }
+
+        func post(_ json: [String: Any]) {
+            guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = data
+            run(request, channel: "wecom")
+        }
+
+        post(["msgtype": "text", "text": ["content": "BLEUnlock\n\(body)"]])
+        if let photo, let small = Self.downscaledJPEG(photo, maxPixel: 1280) {
+            post(["msgtype": "image", "image": [
+                "base64": small.base64EncodedString(),
+                "md5": Self.md5Hex(small),
+            ]])
+        }
+    }
+
+    private static func md5Hex(_ data: Data) -> String {
+        var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+        data.withUnsafeBytes { raw in
+            _ = CC_MD5(raw.baseAddress, CC_LONG(data.count), &digest)
+        }
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private static func downscaledJPEG(_ data: Data, maxPixel: Int = 480) -> Data? {
