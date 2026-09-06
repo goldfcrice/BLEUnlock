@@ -51,7 +51,9 @@ class AuthFailureMonitor {
         p.arguments = ["stream", "--style", "json", "--predicate", Self.predicate]
         let pipe = Pipe()
         p.standardOutput = pipe
-        p.standardError = Pipe() // silence log(1) chatter
+        // Never hand a child an unread pipe for stderr: once its 64KB buffer
+        // fills the process blocks forever and the monitor silently dies.
+        p.standardError = FileHandle.nullDevice
         lineBuffer = ""
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let chunk = String(data: handle.availableData, encoding: .utf8) ?? ""
