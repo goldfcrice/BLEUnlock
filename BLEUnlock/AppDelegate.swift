@@ -35,6 +35,9 @@ class AuthFailureMonitor {
     private var restartTimer: Timer?
     private var lastEventAt = 0.0
     private var lineBuffer = ""
+    // Incremented on stop(); callbacks compare against the generation they
+    // were created in so a late termination cannot restart a stopped monitor.
+    private var generation = 0
     var onAuthFailure: (() -> Void)?
 
     // Keep in sync with looksLikeAuthFailure below. "Authentication fail"
@@ -62,14 +65,17 @@ class AuthFailureMonitor {
             let chunk = String(data: handle.availableData, encoding: .utf8) ?? ""
             DispatchQueue.main.async { self?.ingest(chunk) }
         }
+        let gen = generation
         p.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
-                self?.process = nil
+                guard let self, self.generation == gen else { return }
+                self.process = nil
                 // log stream can die (logd restarts, system sleep); come back after a pause.
-                self?.restartTimer?.invalidate()
-                self?.restartTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
-                    self?.restartTimer = nil
-                    self?.start()
+                self.restartTimer?.invalidate()
+                self.restartTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+                    guard let self, self.generation == gen else { return }
+                    self.restartTimer = nil
+                    self.start()
                 }
             }
         }
@@ -87,6 +93,7 @@ class AuthFailureMonitor {
     }
 
     func stop() {
+        generation += 1
         restartTimer?.invalidate()
         restartTimer = nil
         guard let p = process else { return }

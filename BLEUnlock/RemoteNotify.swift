@@ -338,7 +338,10 @@ class RemoteNotifier {
         var anyFailed = false
         var remaining = 1 + (photo != nil ? 1 : 0)
         func post(_ json: [String: Any]) {
-            guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
+            guard let data = try? JSONSerialization.data(withJSONObject: json) else {
+                completion?(false)
+                return
+            }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
