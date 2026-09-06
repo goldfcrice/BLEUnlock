@@ -1,5 +1,6 @@
 import Cocoa
 import AVFoundation
+import ImageIO
 import Security
 
 let notifyEventNames = ["authFailed", "intruded", "away", "lost", "unlocked"]
@@ -214,15 +215,29 @@ class RemoteNotifier {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         var fields = ["title": "BLEUnlock", "body": body, "group": "BLEUnlock"]
-        // Bark shows the image as an attachment; skip it when the payload gets too large.
-        if let photo, photo.base64EncodedString().count < 700_000 {
-            fields["image"] = photo.base64EncodedString()
+        // Bark shows the image as an attachment, but its servers reject large
+        // bodies (HTTP 413) — downscale aggressively and skip on overflow.
+        if let photo, let small = Self.downscaledJPEG(photo), small.base64EncodedString().count < 200_000 {
+            fields["image"] = small.base64EncodedString()
         }
         let parts = fields.map { k, v -> String in
             "\(k)=\(urlEncoded(v))"
         }
         request.httpBody = parts.joined(separator: "&").data(using: .utf8)
         run(request, channel: "bark")
+    }
+
+    private static func downscaledJPEG(_ data: Data, maxPixel: Int = 480) -> Data? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+              ] as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, cg, [kCGImageDestinationLossyCompressionQuality: 0.6] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return out as Data
     }
 
     private func urlEncoded(_ s: String) -> String {
