@@ -11,94 +11,73 @@ func notifyEventKey(for event: String) -> String? {
     return "notifyEvent_" + event
 }
 
-// Credentials (Telegram token, Bark key) live in the Keychain, not UserDefaults.
-enum CredentialStore {
-    private static let service = "com.github.goldfcrice.BLEUnlock.remote-notify"
-
-    static func set(_ value: String, account: String) {
-        let query: [String: Any] = [
-            String(kSecClass): kSecClassGenericPassword,
-            String(kSecAttrService): service,
-            String(kSecAttrAccount): account,
-        ]
-        SecItemDelete(query as CFDictionary)
-        guard !value.isEmpty else { return }
-        var add = query
-        add[String(kSecValueData)] = Data(value.utf8)
-        add[String(kSecAttrAccessible)] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(add as CFDictionary, nil)
-    }
-
-    static func get(_ account: String) -> String? {
-        let query: [String: Any] = [
-            String(kSecClass): kSecClassGenericPassword,
-            String(kSecAttrService): service,
-            String(kSecAttrAccount): account,
-            String(kSecReturnData): true,
-            String(kSecMatchLimit): kSecMatchLimitOne,
-        ]
-        var item: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    // One-time move of values that earlier builds stored in UserDefaults.
-    static func migrateFromDefaults(_ key: String, account: String) {
-        let prefs = UserDefaults.standard
-        guard prefs.object(forKey: key) != nil else { return }
-        let value = prefs.string(forKey: key) ?? ""
-        set(value, account: account)
-        prefs.removeObject(forKey: key)
-    }
-}
-
 class RemoteNotifier {
     static let notifyMinRSSIKey = "notifyMinRSSI"
     static let notifyWithPhotoKey = "notifyWithPhoto"
     static let savePhotoLocallyKey = "notifySavePhotoLocally"
 
-    private static let telegramTokenAccount = "telegramToken"
-    private static let telegramChatIDAccount = "telegramChatID"
-    private static let barkServerAccount = "barkServer"
-    private static let barkDeviceKeyAccount = "barkDeviceKey"
-    private static let wecomKeyAccount = "wecomWebhookKey"
-    private static let legacyDefaultsAccounts = [
-        "telegramBotToken": telegramTokenAccount,
-        "telegramChatID": telegramChatIDAccount,
-        "barkServer": barkServerAccount,
-        "barkDeviceKey": barkDeviceKeyAccount,
-    ]
-
     private let prefs = UserDefaults.standard
     private let session = URLSession.shared
 
-    init() {
-        for (key, account) in Self.legacyDefaultsAccounts {
-            CredentialStore.migrateFromDefaults(key, account: account)
+    private static let keychainService = "com.github.goldfcrice.BLEUnlock.remote-notify"
+    private static let keychainAccounts = ["telegramToken", "telegramChatID", "barkServer", "barkDeviceKey", "wecomWebhookKey"]
+    private static let defaultsKeys = [
+        "telegramToken": "telegramBotToken",
+        "telegramChatID": "telegramChatID",
+        "barkServer": "barkServer",
+        "barkDeviceKey": "barkDeviceKey",
+        "wecomWebhookKey": "wecomKey",
+    ]
+
+    // One-time move of credentials that earlier builds kept in the Keychain;
+    // reading those items prompted for the login password on every reinstall,
+    // so they are plain user preferences now and live in UserDefaults.
+    private static func migrateFromKeychain() {
+        for account in keychainAccounts {
+            let query: [String: Any] = [
+                String(kSecClass): kSecClassGenericPassword,
+                String(kSecAttrService): keychainService,
+                String(kSecAttrAccount): account,
+                String(kSecReturnData): true,
+            ]
+            var item: AnyObject?
+            if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+               let data = item as? Data,
+               let value = String(data: data, encoding: .utf8) {
+                UserDefaults.standard.set(value, forKey: defaultsKeys[account] ?? account)
+            }
+            var delete = query
+            delete.removeValue(forKey: String(kSecReturnData))
+            SecItemDelete(delete as CFDictionary)
         }
+    }
+
+    init() {
+        Self.migrateFromKeychain()
     }
 
     // MARK: - Configuration
 
-    var telegramToken: String { CredentialStore.get(Self.telegramTokenAccount) ?? "" }
-    var telegramChatID: String { CredentialStore.get(Self.telegramChatIDAccount) ?? "" }
-    var barkServer: String { CredentialStore.get(Self.barkServerAccount) ?? "" }
-    var barkDeviceKey: String { CredentialStore.get(Self.barkDeviceKeyAccount) ?? "" }
-    var wecomKey: String { CredentialStore.get(Self.wecomKeyAccount) ?? "" }
+    var telegramToken: String { prefs.string(forKey: "telegramBotToken") ?? "" }
+    var telegramChatID: String { prefs.string(forKey: "telegramChatID") ?? "" }
+    var barkServer: String { prefs.string(forKey: "barkServer") ?? "" }
+    var barkDeviceKey: String { prefs.string(forKey: "barkDeviceKey") ?? "" }
+    var wecomKey: String { prefs.string(forKey: "wecomKey") ?? "" }
 
     static func setTelegram(token: String, chatID: String) {
-        CredentialStore.set(token, account: telegramTokenAccount)
-        CredentialStore.set(chatID, account: telegramChatIDAccount)
+        let prefs = UserDefaults.standard
+        prefs.set(token, forKey: "telegramBotToken")
+        prefs.set(chatID, forKey: "telegramChatID")
     }
 
     static func setBark(server: String, deviceKey: String) {
-        CredentialStore.set(server, account: barkServerAccount)
-        CredentialStore.set(deviceKey, account: barkDeviceKeyAccount)
+        let prefs = UserDefaults.standard
+        prefs.set(server, forKey: "barkServer")
+        prefs.set(deviceKey, forKey: "barkDeviceKey")
     }
 
     static func setWecom(key: String) {
-        CredentialStore.set(key, account: wecomKeyAccount)
+        UserDefaults.standard.set(key, forKey: "wecomKey")
     }
 
     var hasChannel: Bool {
@@ -369,6 +348,12 @@ class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     private func shoot() {
+        // Do not trigger the TCC consent dialog from an event path; only the
+        // explicit "attach photo" menu toggle asks for permission.
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
+            deliver(nil)
+            return
+        }
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) ??
                             AVCaptureDevice.default(for: .video) else {
             deliver(nil)
