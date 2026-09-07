@@ -137,12 +137,12 @@ func notifyUpdateAvailable() {
     if #available(macOS 10.14, *) {
         enqueueNotification(identifier: updateNotificationID,
                             kind: .update,
-                            title: "BLEUnlock",
+                            title: "BLEUnlockX",
                             subtitle: t("notification_update_available"),
                             sound: false)
     } else {
         let notification = NSUserNotification()
-        notification.title = "BLEUnlock"
+        notification.title = "BLEUnlockX"
         notification.subtitle = t("notification_update_available")
         NSUserNotificationCenter.default.deliver(notification)
     }
@@ -1174,7 +1174,7 @@ struct DeviceMenuItemView {
         }
         enqueueNotification(identifier: lockNotificationID,
                             kind: .lock,
-                            title: "BLEUnlock",
+                            title: "BLEUnlockX",
                             subtitle: subtitle,
                             informativeText: t("notification_locked"),
                             after: 1)
@@ -1810,7 +1810,7 @@ struct DeviceMenuItemView {
         let alert = NSAlert()
         alert.messageText = msg
         alert.informativeText = info ?? ""
-        alert.window.title = "BLEUnlock"
+        alert.window.title = "BLEUnlockX"
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
@@ -1819,7 +1819,7 @@ struct DeviceMenuItemView {
         let alert = NSAlert()
         alert.messageText = msg
         alert.informativeText = info ?? ""
-        alert.window.title = "BLEUnlock"
+        alert.window.title = "BLEUnlockX"
         alert.addButton(withTitle: t("ok"))
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
@@ -1836,7 +1836,7 @@ struct DeviceMenuItemView {
         macOS may ask you to allow BLEUnlock to control those apps. Safari also requires enabling:
         Develop > Allow JavaScript from Apple Events
         """
-        alert.window.title = "BLEUnlock"
+        alert.window.title = "BLEUnlockX"
         alert.addButton(withTitle: t("ok"))
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
@@ -1880,7 +1880,7 @@ struct DeviceMenuItemView {
             String(kSecClass): kSecClassGenericPassword,
             String(kSecAttrAccount): NSUserName(),
             String(kSecAttrService): currentKeychainServiceIdentifier(),
-            String(kSecAttrLabel): "BLEUnlock",
+            String(kSecAttrLabel): "BLEUnlockX",
             String(kSecAttrAccessible): kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             String(kSecValueData): pw,
         ]
@@ -1974,7 +1974,7 @@ struct DeviceMenuItemView {
         msg.addButton(withTitle: t("cancel"))
         msg.messageText = t("enter_password")
         msg.informativeText = t("password_info")
-        msg.window.title = "BLEUnlock"
+        msg.window.title = "BLEUnlockX"
 
         let txt = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 20))
         msg.accessoryView = txt
@@ -1994,7 +1994,7 @@ struct DeviceMenuItemView {
         msg.addButton(withTitle: t("cancel"))
         msg.messageText = t("enter_rssi_threshold")
         msg.informativeText = t("enter_rssi_threshold_info")
-        msg.window.title = "BLEUnlock"
+        msg.window.title = "BLEUnlockX"
         
         let txt = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 20))
         txt.placeholderString = String(ble.thresholdRSSI)
@@ -2136,7 +2136,7 @@ struct DeviceMenuItemView {
                     let alert = NSAlert()
                     alert.messageText = t("update_available_title")
                     alert.informativeText = String(format: t("update_available_message"), version)
-                    alert.window.title = "BLEUnlock"
+                    alert.window.title = "BLEUnlockX"
                     if downloadURL != nil {
                         alert.addButton(withTitle: t("download_update"))
                     }
@@ -2630,7 +2630,7 @@ struct DeviceMenuItemView {
     // ignore Cmd+C/V/X/A. A minimal hidden Edit menu routes the shortcuts.
     private func installEditMenuForTextFields() {
         if NSApp.mainMenu == nil {
-            NSApp.mainMenu = NSMenu(title: "BLEUnlock")
+            NSApp.mainMenu = NSMenu(title: "BLEUnlockX")
         }
         guard NSApp.mainMenu?.items.first?.submenu?.title != "Edit" else { return }
         let editMenuItem = NSMenuItem()

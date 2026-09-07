@@ -120,7 +120,7 @@ class RemoteNotifier {
 
     static var photoDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Pictures/BLEUnlock", isDirectory: true)
+            .appendingPathComponent("Pictures/BLEUnlockX", isDirectory: true)
     }
 
     // Expects the already-annotated JPEG; annotation is centralized in send().
@@ -288,7 +288,7 @@ class RemoteNotifier {
     }
 
     private func sendTelegram(body: String, photo: Data?, completion: ((Bool) -> Void)? = nil) {
-        let text = "BLEUnlock\n\(body)"
+        let text = "BLEUnlockX\n\(body)"
 
         if let photo {
             guard let url = URL(string: "https://api.telegram.org/bot\(telegramToken)/sendPhoto") else { completion?(false); return }
@@ -332,7 +332,7 @@ class RemoteNotifier {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        let fields = ["title": "BLEUnlock", "body": body, "group": "BLEUnlock"]
+        let fields = ["title": "BLEUnlockX", "body": body, "group": "BLEUnlockX"]
         let parts = fields.map { k, v -> String in
             "\(k)=\(urlEncoded(v))"
         }
@@ -364,7 +364,7 @@ class RemoteNotifier {
             }
         }
 
-        post(["msgtype": "text", "text": ["content": "BLEUnlock\n\(body)"]])
+        post(["msgtype": "text", "text": ["content": "BLEUnlockX\n\(body)"]])
         if let photo {
             post(["msgtype": "image", "image": [
                 "base64": photo.base64EncodedString(),

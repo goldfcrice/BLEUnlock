@@ -117,7 +117,7 @@ extension AppDelegate {
         msg.addButton(withTitle: t("cancel"))
         msg.messageText = t("telegram_settings")
         msg.informativeText = t("telegram_settings_info")
-        msg.window.title = "BLEUnlock"
+        msg.window.title = "BLEUnlockX"
 
         let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 300, height: 56))
         stack.orientation = .vertical
@@ -156,7 +156,7 @@ extension AppDelegate {
         msg.addButton(withTitle: t("cancel"))
         msg.messageText = t("wecom_settings")
         msg.informativeText = t("wecom_settings_info")
-        msg.window.title = "BLEUnlock"
+        msg.window.title = "BLEUnlockX"
 
         let keyField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 22))
         keyField.placeholderString = "Webhook key (693axxx-...)"
@@ -175,7 +175,7 @@ extension AppDelegate {
         msg.addButton(withTitle: t("cancel"))
         msg.messageText = t("bark_settings")
         msg.informativeText = t("bark_settings_info")
-        msg.window.title = "BLEUnlock"
+        msg.window.title = "BLEUnlockX"
 
         let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 300, height: 56))
         stack.orientation = .vertical
