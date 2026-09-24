@@ -9,12 +9,12 @@ func t(_ key: String) -> String {
     return NSLocalizedString(key, comment: "")
 }
 
-let appLog = OSLog(subsystem: "com.github.goldfcrice.BLEUnlock", category: "notify")
+let appLog = OSLog(subsystem: "com.github.goldfcrice.BLEUnlockX", category: "notify")
 
-private let currentAppBundleIdentifier = "com.github.goldfcrice.BLEUnlock"
-private let legacyMainBundleIdentifiers = ["com.github.huang-zs.BLEUnlock", "com.github.Skyearn.BLEUnlock", "jp.sone.BLEUnlock"]
-private let lockNotificationID = "com.github.goldfcrice.BLEUnlock.lock"
-private let updateNotificationID = "com.github.goldfcrice.BLEUnlock.update"
+private let currentAppBundleIdentifier = "com.github.goldfcrice.BLEUnlockX"
+private let legacyMainBundleIdentifiers: [String] = []
+private let lockNotificationID = "com.github.goldfcrice.BLEUnlockX.lock"
+private let updateNotificationID = "com.github.goldfcrice.BLEUnlockX.update"
 private let notificationKindKey = "kind"
 private let launcherBundleIDSuffix = ".Launcher"
 private let unlockLogicMenuItemKind = "unlockLogic"
@@ -176,7 +176,7 @@ struct DeviceMenuItemView {
     var lockNowMenuItem: NSMenuItem?
     var deviceMenuItem: NSMenuItem?
     /// Serial queue for ServiceManagement XPC calls to avoid concurrent smd requests.
-    let smdQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.smd")
+    let smdQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlockX.smd")
     let prefs = UserDefaults.standard
     var displaySleep = false
     var systemSleep = false
@@ -199,7 +199,7 @@ struct DeviceMenuItemView {
     var flagsEventMonitor: Any?
     var deviceMaxTitleWidth: [UUID: CGFloat] = [:]
     var automationPermissionPromptedApps: Set<ManagedMediaApp> = []
-    let mediaControlQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.media-control", qos: .userInitiated)
+    let mediaControlQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlockX.media-control", qos: .userInitiated)
     var systemWakeTimer: Timer?
     var wakeUnlockTimer: Timer?
     var postUnlockRetryTimer: Timer?

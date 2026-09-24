@@ -20,43 +20,7 @@ class RemoteNotifier {
     private let prefs = UserDefaults.standard
     private let session = URLSession.shared
 
-    private static let keychainService = "com.github.goldfcrice.BLEUnlock.remote-notify"
-    private static let keychainAccounts = ["telegramToken", "telegramChatID", "barkServer", "barkDeviceKey", "wecomWebhookKey"]
-    private static let defaultsKeys = [
-        "telegramToken": "telegramBotToken",
-        "telegramChatID": "telegramChatID",
-        "barkServer": "barkServer",
-        "barkDeviceKey": "barkDeviceKey",
-        "wecomWebhookKey": "wecomKey",
-    ]
-
-    // One-time move of credentials that earlier builds kept in the Keychain;
-    // reading those items prompted for the login password on every reinstall,
-    // so they are plain user preferences now and live in UserDefaults.
-    private static func migrateFromKeychain() {
-        for account in keychainAccounts {
-            let query: [String: Any] = [
-                String(kSecClass): kSecClassGenericPassword,
-                String(kSecAttrService): keychainService,
-                String(kSecAttrAccount): account,
-                String(kSecReturnData): true,
-            ]
-            var item: AnyObject?
-            if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-               let data = item as? Data,
-               let value = String(data: data, encoding: .utf8) {
-                UserDefaults.standard.set(value, forKey: defaultsKeys[account] ?? account)
-            }
-            var delete = query
-            delete.removeValue(forKey: String(kSecReturnData))
-            SecItemDelete(delete as CFDictionary)
-        }
-    }
-
-    init() {
-        Self.migrateFromKeychain()
-    }
-
+    private static let keychainService = "com.github.goldfcrice.BLEUnlockX.remote-notify"
     // MARK: - Configuration
 
     var telegramToken: String { prefs.string(forKey: "telegramBotToken") ?? "" }
@@ -206,7 +170,7 @@ class RemoteNotifier {
 
     // Image decode/draw/encode is heavy; keep it off the main thread so event
     // timers and menu tracking never stall while a notification is prepared.
-    private static let imageQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.notify-images", qos: .userInitiated)
+    private static let imageQueue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlockX.notify-images", qos: .userInitiated)
 
     private func send(event: String, body: String, rssi: Int?, photo: Data?, report: (([String: Bool]) -> Void)? = nil) {
         Self.imageQueue.async {
@@ -418,7 +382,7 @@ class RemoteNotifier {
 // back-to-back captures are coalesced instead of racing.
 @available(macOS 10.15, *)
 class PhotoCapture: NSObject, AVCapturePhotoCaptureDelegate {
-    private static let queue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlock.photo-capture")
+    private static let queue = DispatchQueue(label: "com.github.goldfcrice.BLEUnlockX.photo-capture")
     private static var current: PhotoCapture?
     private static var pending: [(Data?) -> Void] = []
 
