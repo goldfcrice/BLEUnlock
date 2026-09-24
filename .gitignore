@@ -56,3 +56,4 @@ fastlane/screenshots
 .build
 /archives
 .zcode/
+BLEUnlock-test/

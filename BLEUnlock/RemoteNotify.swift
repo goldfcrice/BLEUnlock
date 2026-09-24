@@ -20,7 +20,6 @@ class RemoteNotifier {
     private let prefs = UserDefaults.standard
     private let session = URLSession.shared
 
-    private static let keychainService = "com.github.goldfcrice.BLEUnlockX.remote-notify"
     // MARK: - Configuration
 
     var telegramToken: String { prefs.string(forKey: "telegramBotToken") ?? "" }
@@ -133,7 +132,7 @@ class RemoteNotifier {
                 let msg = NSAlert()
                 msg.messageText = allOk ? t("notify_test_ok") : t("notify_test_failed")
                 msg.informativeText = lines
-                msg.window.title = "BLEUnlock"
+                msg.window.title = "BLEUnlockX"
                 NSApp.activate(ignoringOtherApps: true)
                 msg.runModal()
             }
@@ -307,8 +306,7 @@ class RemoteNotifier {
     // WeCom group bot webhook: text by default, image message only when a
     // photo was captured (image limit is 2MB before base64).
     private func sendWecom(body: String, photo: Data?, completion: ((Bool) -> Void)? = nil) {
-        let base = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=\(wecomKey)"
-        guard let url = URL(string: base) else { completion?(false); return }
+        guard let url = URL(string: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=\(urlEncoded(wecomKey))") else { completion?(false); return }
 
         var anyFailed = false
         var remaining = 1 + (photo != nil ? 1 : 0)
